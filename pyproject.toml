@@ -36,3 +36,15 @@ Issues = "https://github.com/a13543431108/DPMP/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["dpmp*"]
+
+[tool.setuptools.package-data]
+dpmp = ["py.typed"]
+
+[tool.setuptools.package-data]
+dpmp = ["py.typed"]
+
+[tool.setuptools.package-data]
+dpmp = ["py.typed"]
+
+[tool.setuptools.package-data]
+dpmp = ["py.typed"]

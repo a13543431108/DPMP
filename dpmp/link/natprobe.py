@@ -9,12 +9,17 @@
 
 import json
 import socket
+from typing import Callable, Dict, Optional
 
 from ..protocol import constants as C
 
 
-def detect_nat_type(server_ip, server_port=C.DEFAULT_SERVER_PORT,
-                    probe_port=C.NAT_PROBE_PORT, timeout=1.5, log=None):
+def detect_nat_type(server_ip: str,
+                    server_port: int = C.DEFAULT_SERVER_PORT,
+                    probe_port: int = C.NAT_PROBE_PORT,
+                    timeout: float = 1.5,
+                    log: Optional[Callable[[str], None]] = None
+                    ) -> Dict[str, Optional[str]]:
     """返回 dict：
         {"type": "cone"|"symmetric"|"unknown"|"no_udp",
          "primary": "ip:port"|None, "alt": "ip:port"|None}

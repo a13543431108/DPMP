@@ -11,31 +11,38 @@
     · 局域网模式完全不使用服务器。
 """
 
+import datetime
+from typing import Dict, List, Optional, Tuple
+
 from .protocol import constants as C
 
 # ============================================================
 # 默认信令服务器（便利入口，非强制）
 # ============================================================
-DEFAULT_SERVER = "42.194.133.132"
-DEFAULT_SERVER_PORT = C.DEFAULT_SERVER_PORT            # 3336
-DEFAULT_SERVER_TCP_PORT = C.DEFAULT_SERVER_TCP_PORT    # 3337
-DEFAULT_NAT_PROBE_PORT = C.NAT_PROBE_PORT              # 3338
+DEFAULT_SERVER: str = "42.194.133.132"
+DEFAULT_SERVER_PORT: int = C.DEFAULT_SERVER_PORT            # 3336
+DEFAULT_SERVER_TCP_PORT: int = C.DEFAULT_SERVER_TCP_PORT    # 3337
+DEFAULT_NAT_PROBE_PORT: int = C.NAT_PROBE_PORT              # 3338
 
 # 默认服务器到期日（ISO 日期）。到期/临近时客户端会提示。
 # 使用者应在此日期后改用自建服务器或备用服务器。
-DEFAULT_SERVER_EXPIRES = "2026-11-01"
+DEFAULT_SERVER_EXPIRES: str = "2026-11-01"
 
 # 临近到期的提醒阈值（天）
-EXPIRY_WARN_DAYS = 7
+EXPIRY_WARN_DAYS: int = 7
 
 
-def default_servers():
-    """返回默认服务器候选列表（单个）。"""
+def default_servers() -> List[Tuple[str, int, int, int]]:
+    """返回默认服务器候选列表（单个）。
+
+    每项为 (ip, 信令端口, TCP 映射观测端口, NAT 探测端口)。
+    """
     return [(DEFAULT_SERVER, DEFAULT_SERVER_PORT,
              DEFAULT_SERVER_TCP_PORT, DEFAULT_NAT_PROBE_PORT)]
 
 
-def check_default_server_expiry(today=None):
+def check_default_server_expiry(
+        today: Optional[datetime.date] = None) -> Dict[str, object]:
     """检查默认服务器的到期状态。
 
     返回 dict：
@@ -43,7 +50,6 @@ def check_default_server_expiry(today=None):
        "days_left": int|None,
        "expires": "YYYY-MM-DD"}
     """
-    import datetime
     if today is None:
         today = datetime.date.today()
     try:

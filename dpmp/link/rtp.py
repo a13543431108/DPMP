@@ -21,6 +21,7 @@
 import struct
 import threading
 import time
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..protocol import constants as C
 from ..protocol import codec as _codec
@@ -52,9 +53,15 @@ class UdpReliableSocket:
 
     is_udp_rtp = True
 
-    def __init__(self, send_fn, peer_addr, log=None, on_peer_dead=None,
-                 on_sync_ready=None, on_punch_round=None,
-                 on_tcp_ready=None, on_punch_fail=None, config=None):
+    def __init__(self, send_fn: Callable[[Tuple[str, int], bytes], None],
+                 peer_addr: Tuple[str, int],
+                 log: Optional[Callable[[str], None]] = None,
+                 on_peer_dead: Optional[Callable[[Tuple[str, int]], None]] = None,
+                 on_sync_ready: Optional[Callable[[int], None]] = None,
+                 on_punch_round: Optional[Callable[[int, int], None]] = None,
+                 on_tcp_ready: Optional[Callable[[], None]] = None,
+                 on_punch_fail: Optional[Callable[[], None]] = None,
+                 config=None) -> None:
         if config is None:
             from ..config import DEFAULT_CONFIG
             config = DEFAULT_CONFIG
@@ -113,7 +120,7 @@ class UdpReliableSocket:
 
     # ---------- 对外接口 ----------
 
-    def sendall(self, data):
+    def sendall(self, data: bytes) -> None:
         if not data or self._closed:
             return
         offset = 0
@@ -137,7 +144,7 @@ class UdpReliableSocket:
                 self.log("[UDP-RTP] send 失败: %s" % e)
                 return
 
-    def recv(self, n):
+    def recv(self, n: int) -> bytes:
         with self._recv_cond:
             deadline = time.time() + self._timeout if self._timeout else None
             while len(self._recv_buf) == 0 and not self._peer_closed:
@@ -155,7 +162,7 @@ class UdpReliableSocket:
             del self._recv_buf[:take]
             return data
 
-    def recv_into(self, buffer, nbytes=0):
+    def recv_into(self, buffer: Any, nbytes: int = 0) -> int:
         if nbytes <= 0:
             nbytes = len(buffer)
         data = self.recv(nbytes)
@@ -164,7 +171,7 @@ class UdpReliableSocket:
         buffer[:len(data)] = data
         return len(data)
 
-    def recv_exact(self, n):
+    def recv_exact(self, n: int) -> bytes:
         buf = bytearray()
         while len(buf) < n:
             chunk = self.recv(n - len(buf))
@@ -173,10 +180,10 @@ class UdpReliableSocket:
             buf.extend(chunk)
         return bytes(buf)
 
-    def settimeout(self, t):
+    def settimeout(self, t: Optional[float]) -> None:
         self._timeout = t
 
-    def send_punch_round(self, round_no, t_go_r):
+    def send_punch_round(self, round_no: int, t_go_r: int) -> bool:
         """主导方向对端下发下一轮打洞时刻（responder 钟绝对毫秒）。"""
         try:
             payload = _codec.pack_punch_round(round_no, t_go_r)
@@ -188,7 +195,7 @@ class UdpReliableSocket:
             self.log("[打洞] 发送 PUNCH_ROUND 失败: %s" % e)
             return False
 
-    def send_tcp_ready(self):
+    def send_tcp_ready(self) -> bool:
         """告知对端本机 TCP 映射已就绪，可开始打洞。"""
         try:
             self._send_fn(self.peer,
@@ -199,7 +206,7 @@ class UdpReliableSocket:
             self.log("[打洞] 发送 TCP_READY 失败: %s" % e)
             return False
 
-    def send_punch_fail(self):
+    def send_punch_fail(self) -> bool:
         """告知对端本机 TCP 打洞彻底失败，避免对端空等。"""
         try:
             self._send_fn(self.peer,
@@ -210,16 +217,16 @@ class UdpReliableSocket:
             self.log("[打洞] 发送 PUNCH_FAIL 失败: %s" % e)
             return False
 
-    def get_sync_offset(self):
+    def get_sync_offset(self) -> Optional[int]:
         return self._sync_offset
 
-    def get_sync_rtt(self):
+    def get_sync_rtt(self) -> Optional[int]:
         return self._sync_rtt
 
-    def get_peer_ver(self):
+    def get_peer_ver(self) -> int:
         return self._peer_ver
 
-    def start_sync(self):
+    def start_sync(self) -> None:
         """发起 SYNC 采样，完成后发送 SYNC_COMMIT 约定 TCP 打洞时刻。
 
         阻塞在调用线程，直至采样完成（约 1-4 秒）。
@@ -309,20 +316,20 @@ class UdpReliableSocket:
             with self._sync_lock:
                 self._sync_in_progress = False
 
-    def is_dead(self):
+    def is_dead(self) -> bool:
         if self._closed:
             return True
         if self._peer_dead_fired:
             return True
         return (time.time() - self._last_recv_time) > self.peer_dead_timeout
 
-    def gettimeout(self):
+    def gettimeout(self) -> Optional[float]:
         return self._timeout
 
-    def getpeername(self):
+    def getpeername(self) -> Tuple[str, int]:
         return self.peer
 
-    def close(self):
+    def close(self) -> None:
         if self._closed:
             return
         self._closed = True
@@ -336,7 +343,7 @@ class UdpReliableSocket:
 
     # ---------- 接收（由全局接收循环调用） ----------
 
-    def on_packet(self, data):
+    def on_packet(self, data: bytes) -> None:
         """处理一个来自本对端的 UDP 包（已由上层按源地址过滤）。"""
         if len(data) < C.RTP_HEADER_SIZE or self._closed:
             return
@@ -380,7 +387,7 @@ class UdpReliableSocket:
                 except Exception as e:
                     self.log("[打洞] on_punch_fail 异常: %s" % e)
 
-    def _on_data(self, seq, ack, payload):
+    def _on_data(self, seq: int, ack: int, payload: bytes) -> None:
         self._on_ack(ack)
         try:
             self._send_fn(self.peer,
@@ -399,7 +406,7 @@ class UdpReliableSocket:
         elif seq > self._recv_next:
             self._out_of_order[seq] = payload
 
-    def _on_ack(self, ack):
+    def _on_ack(self, ack: int) -> None:
         with self._send_lock:
             done = [s for s in self._send_queue if s < ack]
             advanced = len(done)
@@ -409,7 +416,7 @@ class UdpReliableSocket:
             if advanced > 0:
                 self.window = min(self._window_max, self.window + advanced)
 
-    def _on_sync_req(self, payload):
+    def _on_sync_req(self, payload: bytes) -> None:
         try:
             t1, peer_ver = _codec.unpack_sync_req(payload)
         except struct.error:
@@ -426,7 +433,7 @@ class UdpReliableSocket:
         except Exception as e:
             self.log("[SYNC] 发送 ACK 失败: %s" % e)
 
-    def _on_sync_ack(self, payload):
+    def _on_sync_ack(self, payload: bytes) -> None:
         try:
             t1, t2, t3, peer_ver = _codec.unpack_sync_ack(payload)
         except struct.error:
@@ -441,7 +448,7 @@ class UdpReliableSocket:
                 self._sync_replies[t1] = (rtt, offset, t4)
                 self._sync_pending[t1].set()
 
-    def _on_sync_commit(self, payload):
+    def _on_sync_commit(self, payload: bytes) -> None:
         """响应方收到 COMMIT：解析 T_go（本机钟）并回调上层。"""
         t_go_local = None
         try:
@@ -465,7 +472,7 @@ class UdpReliableSocket:
             except Exception as e:
                 self.log("[SYNC] on_sync_ready(响应方) 异常: %s" % e)
 
-    def _on_punch_round_pkt(self, payload):
+    def _on_punch_round_pkt(self, payload: bytes) -> None:
         try:
             round_no, t_go_r = _codec.unpack_punch_round(payload)
         except struct.error:
@@ -479,7 +486,7 @@ class UdpReliableSocket:
 
     # ---------- 后台线程 ----------
 
-    def _rtx_loop(self):
+    def _rtx_loop(self) -> None:
         while not self._closed:
             time.sleep(self.rtx_interval)
             now = time.time()
@@ -499,7 +506,7 @@ class UdpReliableSocket:
                 except Exception:
                     pass
 
-    def _keepalive_loop(self):
+    def _keepalive_loop(self) -> None:
         while not self._closed:
             time.sleep(1.0)
             now = time.time()

@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 """地址工具：host:port 的格式化与解析（IPv4 / IPv6 双栈）。"""
 
+from typing import Optional, Tuple
 
-def fmt_host_port(ip, port):
+
+def fmt_host_port(ip: str, port: int) -> str:
     """格式化 'ip:port'；IPv6 用 '[ip]:port' 以便区分端口。"""
     if ":" in ip:
         return "[%s]:%d" % (ip, port)
     return "%s:%d" % (ip, port)
 
 
-def parse_host_port(s):
+def parse_host_port(s: str) -> Optional[Tuple[str, int]]:
     """解析 'ip:port' 或 '[ipv6]:port'，返回 (ip, port) 或 None。"""
     if not s:
         return None

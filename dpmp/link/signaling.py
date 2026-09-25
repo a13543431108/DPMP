@@ -17,13 +17,15 @@ import socket
 import struct
 import threading
 import time
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from ..protocol import constants as C
 from ..protocol.addr import parse_host_port
 from . import natprobe
 
 
-def _parse_server_spec(spec, default_tcp, default_nat):
+def _parse_server_spec(spec: Any, default_tcp: int,
+                       default_nat: int) -> Optional[Tuple[str, int, int, int]]:
     """把一个服务器描述规范化成 (ip, port, tcp_port, nat_port)。
 
     支持写法：
@@ -60,8 +62,10 @@ def _parse_server_spec(spec, default_tcp, default_nat):
     return (ip, int(port), int(tcp), int(nat))
 
 
-def _normalize_servers(servers, default_ip, default_port,
-                       default_tcp, default_nat):
+def _normalize_servers(servers: Any, default_ip: Optional[str],
+                       default_port: Optional[int],
+                       default_tcp: int,
+                       default_nat: int) -> List[Tuple[str, int, int, int]]:
     """构建服务器候选列表（供多服务器自动故障转移）。
 
     优先使用 servers；否则退回 default_ip:default_port 单个候选。
@@ -94,14 +98,29 @@ class SignalingClient:
       on_mapping_ready()                       TCP 映射就绪
     """
 
-    def __init__(self, server_ip=None, server_port=None, room=None, name=None,
-                 tcp_port=None, lan_ips=None,
-                 on_joined=None, on_member_join=None, on_member_leave=None,
-                 on_punch_go=None, on_error=None, log=None,
-                 server_tcp_port=None, punch_local_port=None, device_id=None,
-                 on_udp_hole_ready=None, on_mapping_ready=None,
-                 udp_hole_port=None, nat_probe_port=None, config=None,
-                 servers=None, auto_failover=True, connect_timeout=10.0):
+    def __init__(self, server_ip: Optional[str] = None,
+                 server_port: Optional[int] = None,
+                 room: Optional[str] = None,
+                 name: Optional[str] = None,
+                 tcp_port: Optional[int] = None,
+                 lan_ips: Any = None,
+                 on_joined: Any = None,
+                 on_member_join: Any = None,
+                 on_member_leave: Any = None,
+                 on_punch_go: Any = None,
+                 on_error: Any = None,
+                 log: Optional[Callable[[str], None]] = None,
+                 server_tcp_port: Optional[int] = None,
+                 punch_local_port: Optional[int] = None,
+                 device_id: Optional[str] = None,
+                 on_udp_hole_ready: Any = None,
+                 on_mapping_ready: Any = None,
+                 udp_hole_port: Optional[int] = None,
+                 nat_probe_port: Optional[int] = None,
+                 config=None,
+                 servers: Any = None,
+                 auto_failover: bool = True,
+                 connect_timeout: float = 10.0) -> None:
         if config is None:
             from ..config import DEFAULT_CONFIG
             config = DEFAULT_CONFIG
@@ -165,7 +184,7 @@ class SignalingClient:
 
     # ---------- 生命周期 ----------
 
-    def start(self):
+    def start(self) -> bool:
         """连接信令服务器并加入房间。
 
         支持多服务器自动故障转移：依次尝试 self._servers 中的每个候选，
@@ -219,7 +238,7 @@ class SignalingClient:
                 pass
         return False
 
-    def _try_connect_one(self):
+    def _try_connect_one(self) -> bool:
         """尝试连接当前 self.server_ip 并加入房间。成功返回 True。"""
         try:
             fam = socket.AF_INET6 if ":" in self.server_ip else socket.AF_INET
@@ -253,7 +272,7 @@ class SignalingClient:
         threading.Thread(target=self._run_nat_probe, daemon=True).start()
         return True
 
-    def _run_nat_probe(self):
+    def _run_nat_probe(self) -> None:
         try:
             r = natprobe.detect_nat_type(self.server_ip, self.server_port,
                                          self.nat_probe_port, timeout=1.5,
@@ -275,7 +294,7 @@ class SignalingClient:
         except Exception as e:
             self.log("[NAT探测] 异常: %s" % e)
 
-    def stop(self, quiet=False):
+    def stop(self, quiet: bool = False) -> None:
         """停止信令客户端。
 
         quiet=True：不发 BYE（用于网络切换重建）——让服务器保留本成员条目，
@@ -307,7 +326,7 @@ class SignalingClient:
         except Exception:
             pass
 
-    def rebind(self):
+    def rebind(self) -> bool:
         """网络切换后重建信令连接：重开所有 socket 并重新加入房间。
 
         宿主应用在检测到网络切换（Wi-Fi/蜂窝切换、IP 变化）时调用。
@@ -330,7 +349,7 @@ class SignalingClient:
 
     # ---------- UDP 打洞与可靠通道 ----------
 
-    def _open_udp_hole_socket(self):
+    def _open_udp_hole_socket(self) -> None:
         try:
             fam = socket.AF_INET6 if ":" in self.server_ip else socket.AF_INET
             self.udp_hole_sock = socket.socket(fam, socket.SOCK_DGRAM)
@@ -361,7 +380,7 @@ class SignalingClient:
             self.log("[UDP打洞] socket 打开失败: %s" % e)
             self.udp_hole_sock = None
 
-    def send_udp_to(self, peer_addr, data):
+    def send_udp_to(self, peer_addr: Tuple[str, int], data: bytes) -> None:
         """向指定对端地址发送一个 UDP 包（UDP-RTP 发送入口）。"""
         try:
             if self.udp_hole_sock:
@@ -369,16 +388,17 @@ class SignalingClient:
         except Exception as e:
             self.log("[UDP-RTP] send_udp_to 失败: %s" % e)
 
-    def register_udp_rtp(self, peer_key, on_packet):
+    def register_udp_rtp(self, peer_key: str,
+                         on_packet: Callable[[bytes], None]) -> None:
         """注册某对端地址的 RTP 处理回调。peer_key 为 'ip:port'。"""
         with self._udp_rtp_lock:
             self._udp_rtp_handlers[peer_key] = on_packet
 
-    def unregister_udp_rtp(self, peer_key):
+    def unregister_udp_rtp(self, peer_key: str) -> None:
         with self._udp_rtp_lock:
             self._udp_rtp_handlers.pop(peer_key, None)
 
-    def _udp_global_recv_loop(self):
+    def _udp_global_recv_loop(self) -> None:
         """全局 UDP 接收循环：按源地址分发打洞探测包与 RTP 数据包。"""
         self.log("[UDP-RTP] 全局接收循环启动")
         buf = bytearray(2048)
@@ -418,7 +438,7 @@ class SignalingClient:
                     self.log("[UDP-RTP] 处理包异常: %s" % e)
         self.log("[UDP-RTP] 全局接收循环退出")
 
-    def _start_udp_hole(self, peer):
+    def _start_udp_hole(self, peer: dict) -> None:
         """收到 punch_go 后，启动 UDP 打洞探测：向对端 pub_udp 持续发包。"""
         if self.udp_hole_sock is None:
             self.log("[UDP打洞] socket 未打开，跳过")
@@ -462,17 +482,17 @@ class SignalingClient:
         self._udp_hole_thread = threading.Thread(target=_probe, daemon=True)
         self._udp_hole_thread.start()
 
-    def request_punch(self, target_id):
+    def request_punch(self, target_id: str) -> None:
         self._send({"type": C.T_PUNCH_REQ, "ver": C.DPMP_VER,
                     "id": self.my_id, "target": target_id})
 
     # ---------- 信令收发 ----------
 
-    def _send(self, obj):
+    def _send(self, obj: dict) -> None:
         data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.sock.sendto(data, (self.server_ip, self.server_port))
 
-    def _send_join(self):
+    def _send_join(self) -> None:
         msg = {
             "type": C.T_JOIN, "ver": C.DPMP_VER, "room": self.room,
             "name": self.name, "tcp": self.tcp_port, "lan": self.lan_ips,
@@ -483,7 +503,7 @@ class SignalingClient:
             msg["reuse_id"] = self._reuse_id
         self._send(msg)
 
-    def _sync_time(self):
+    def _sync_time(self) -> None:
         """NTP 式时间同步（4 次采样取最小 RTT）。
 
         offset = t2 - (t1 + t3) / 2  （服务器时间 - 本地时间）
@@ -542,7 +562,7 @@ class SignalingClient:
         else:
             self.log("[校时] 未能同步，使用本地时钟（可能影响打洞时刻）")
 
-    def _open_mapping(self):
+    def _open_mapping(self) -> None:
         fam = socket.AF_INET6 if ":" in self.server_ip else socket.AF_INET
         for attempt in range(1, 4):
             s = None
@@ -575,7 +595,7 @@ class SignalingClient:
                     continue
                 self.log("[信令] TCP 映射观测连接失败: %s" % e)
 
-    def _wait_joined(self):
+    def _wait_joined(self) -> bool:
         deadline = time.time() + self.connect_timeout
         while time.time() < deadline and self._running:
             try:
@@ -599,7 +619,7 @@ class SignalingClient:
                 return False
         return False
 
-    def _recv_loop(self):
+    def _recv_loop(self) -> None:
         while self._running:
             try:
                 data, _ = self.sock.recvfrom(65535)
@@ -630,7 +650,7 @@ class SignalingClient:
                 if self.on_error:
                     self.on_error(msg.get("code", "UNKNOWN"))
 
-    def _hb_loop(self):
+    def _hb_loop(self) -> None:
         while self._running:
             time.sleep(self.cfg.heartbeat_interval)
             if not self._running:

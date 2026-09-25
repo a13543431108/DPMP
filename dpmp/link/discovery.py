@@ -13,14 +13,11 @@ import json
 import socket
 import threading
 import time
+from typing import Callable, Dict, List, Optional
 
 from ..protocol import constants as C
 from ..util.net import (get_all_local_ips, get_broadcast_addrs,
                         get_subnet_for_ip, get_mac_address)
-
-
-class Node:
-    """一个已发现的对端设备（dict 形式存储于 Discovery.nodes）。"""
 
 
 class Discovery:
@@ -41,9 +38,13 @@ class Discovery:
       add_manual_node(ip)       手动添加
     """
 
-    def __init__(self, device_id, hostname, log=None,
-                 on_new_node=None, on_node_gone=None,
-                 udp_port=None, scan_port=None, config=None):
+    def __init__(self, device_id: str, hostname: Optional[str] = None,
+                 log: Optional[Callable[[str], None]] = None,
+                 on_new_node: Optional[Callable[[str, dict], None]] = None,
+                 on_node_gone: Optional[Callable[[str], None]] = None,
+                 udp_port: Optional[int] = None,
+                 scan_port: Optional[int] = None,
+                 config=None) -> None:
         if config is None:
             from ..config import DEFAULT_CONFIG
             config = DEFAULT_CONFIG
@@ -74,7 +75,7 @@ class Discovery:
 
     # ---------- 生命周期 ----------
 
-    def start(self):
+    def start(self) -> None:
         self.running = True
         threading.Thread(target=self._udp_listener, daemon=True).start()
         threading.Thread(target=self._scan_listener, daemon=True).start()
@@ -84,7 +85,7 @@ class Discovery:
             self.log("本机 IPv6: %s" % ", ".join(self.my_ips_v6))
         self.log("广播地址: %s" % ", ".join(self.broadcast_addrs))
 
-    def stop(self):
+    def stop(self) -> None:
         self.running = False
         for s in self.broadcast_sockets + self.listen_sockets:
             try:
@@ -135,7 +136,8 @@ class Discovery:
                 is_new = True
         return is_new
 
-    def get_nodes(self):
+    def get_nodes(self) -> Dict[str, dict]:
+        """返回当前已发现节点 {ip: node_dict} 的快照。"""
         with self.lock:
             return dict(self.nodes)
 
@@ -179,7 +181,7 @@ class Discovery:
             else:
                 time.sleep(self.discover_interval)
 
-    def broadcast_search(self):
+    def broadcast_search(self) -> None:
         """广播搜索：向所有广播地址爆发式发送探测包，等待设备回复。"""
         self.log("[广播搜索] 发送广播探测，等待设备回复...")
         msg = self._build_msg(**{C.LAN_K_DISCOVERY: True})
@@ -310,7 +312,8 @@ class Discovery:
         except Exception:
             pass
 
-    def scan_subnet(self, network_cidr, callback=None):
+    def scan_subnet(self, network_cidr: str,
+                    callback: Optional[Callable[..., None]] = None) -> None:
         """扫描一个子网（IPv4），发现的对端通过 on_new_node 回调。"""
         import ipaddress
         try:
@@ -338,7 +341,8 @@ class Discovery:
                 pass
             self.scanning = False
 
-    def add_manual_node(self, ip, hostname=None):
+    def add_manual_node(self, ip: str,
+                        hostname: Optional[str] = None) -> None:
         """手动添加节点，并主动发探测让对方也发现我们。"""
         with self.lock:
             self.nodes[ip] = {

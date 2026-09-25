@@ -16,6 +16,7 @@ import select
 import socket
 import threading
 import time
+from typing import Any, Callable, List, Optional, Tuple
 
 from ..protocol import constants as C
 from ..protocol.addr import parse_host_port
@@ -24,7 +25,7 @@ from ..protocol.addr import parse_host_port
 class PunchResult:
     """打洞成功的结果：一条保持打开的已连接 socket。"""
 
-    def __init__(self, ip, port, sock):
+    def __init__(self, ip: str, port: int, sock: socket.socket) -> None:
         self.ip = ip
         self.port = port
         self.sock = sock
@@ -38,7 +39,9 @@ class HolePuncher:
       log：日志回调
     """
 
-    def __init__(self, local_tcp_port, log=None, clock_offset_ms=0, config=None):
+    def __init__(self, local_tcp_port: int,
+                 log: Optional[Callable[[str], None]] = None,
+                 clock_offset_ms: int = 0, config=None) -> None:
         if config is None:
             from ..config import DEFAULT_CONFIG
             config = DEFAULT_CONFIG
@@ -55,23 +58,23 @@ class HolePuncher:
         # 诊断开关：逐候选的失败/超时日志默认不输出
         self.verbose = False
 
-    def set_clock_offset(self, offset_ms):
+    def set_clock_offset(self, offset_ms: int) -> None:
         """更新时钟偏移（由信令时间同步写入）。"""
         self._clock_offset_ms = offset_ms or 0
 
-    def set_adaptive_timeout(self, rtt_ms):
+    def set_adaptive_timeout(self, rtt_ms: int) -> None:
         """按 SYNC RTT 调整 connect 超时（3~8 秒）。"""
         if not rtt_ms or rtt_ms <= 0:
             return
         t = max(3.0, min(8.0, rtt_ms / 1000.0 * 4.0))
         self.connect_timeout = t
 
-    def set_udp_hint(self, peer_id, ip, port):
+    def set_udp_hint(self, peer_id: str, ip: str, port: int) -> None:
         """记录 UDP 打洞得到的对端公网地址，供预测 TCP 端口。"""
         with self._hint_lock:
             self.udp_hint[peer_id] = (ip, port)
 
-    def punch(self, peer, at_ms):
+    def punch(self, peer: dict, at_ms: int) -> Optional[PunchResult]:
         """执行打洞。peer 为 dict：{id, tcp, lan:[...], pub_tcp:"ip:port"}。
 
         返回 PunchResult 或 None。
@@ -98,7 +101,9 @@ class HolePuncher:
             self.log("[打洞] 失败 peer=%s（所有候选均不可达）" % peer.get("id"))
         return None
 
-    def _connect_candidates_parallel(self, candidates, peer_id):
+    def _connect_candidates_parallel(
+            self, candidates: List[Tuple[str, int]],
+            peer_id: str) -> Optional[PunchResult]:
         """并行尝试所有候选地址，返回首个成功的 PunchResult。"""
         n = len(candidates)
         if n == 1:
@@ -147,7 +152,7 @@ class HolePuncher:
             t.join(timeout=0.2)
         return results.get("win")
 
-    def _build_candidates(self, peer):
+    def _build_candidates(self, peer: dict) -> List[Tuple[str, int]]:
         tcp_port = peer.get("tcp") or 0
         result = []
         seen = set()
@@ -182,7 +187,7 @@ class HolePuncher:
                              % (hip, hport, peer.get("id")))
         return result
 
-    def _wait_until(self, at_ms):
+    def _wait_until(self, at_ms: int) -> None:
         """等到参考时钟 at_ms 时刻（换算成本地时刻）。"""
         if not at_ms:
             return
@@ -191,7 +196,7 @@ class HolePuncher:
         if remain > 0:
             time.sleep(min(remain, 2.0))
 
-    def _try_connect(self, ip, port):
+    def _try_connect(self, ip: str, port: int) -> Optional[PunchResult]:
         """非阻塞 connect + select 等待 —— TCP 同时打开的正确实现。
 
         不能用 sock.settimeout()+connect_ex()：Windows 上 settimeout 会让

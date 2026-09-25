@@ -11,6 +11,7 @@
 import socket
 import threading
 import time
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from ..protocol import constants as C
 from .puncher import HolePuncher
@@ -23,7 +24,7 @@ class Conn:
 
     __slots__ = ("state", "sock", "addr", "member", "io_lock")
 
-    def __init__(self, member):
+    def __init__(self, member: dict) -> None:
         self.state = C.STATE_CONNECTING
         self.sock = None
         self.addr = None
@@ -45,7 +46,9 @@ class LinkManager:
       on_state_changed()                       成员状态变化（UI 刷新）
     """
 
-    def __init__(self, signaling, local_tcp_port, log=None, config=None):
+    def __init__(self, signaling: Any, local_tcp_port: int,
+                 log: Optional[Callable[[str], None]] = None,
+                 config=None) -> None:
         if config is None:
             from ..config import DEFAULT_CONFIG
             config = DEFAULT_CONFIG
@@ -79,12 +82,12 @@ class LinkManager:
 
     # ---------- 生命周期 ----------
 
-    def start(self):
+    def start(self) -> None:
         self._running = True
         self._keepalive_thread = threading.Thread(target=self._keepalive_loop, daemon=True)
         self._keepalive_thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._running = False
         with self.lock:
             for conn in self.connections.values():
@@ -99,7 +102,7 @@ class LinkManager:
 
     # ---------- 路径调度 ----------
 
-    def _get_path_sched(self, peer_id):
+    def _get_path_sched(self, peer_id: str) -> PeerPathScheduler:
         with self.lock:
             s = self._path_schedulers.get(peer_id)
             if s is None:
@@ -107,14 +110,14 @@ class LinkManager:
                 self._path_schedulers[peer_id] = s
             return s
 
-    def mark_mapping_ready(self):
+    def mark_mapping_ready(self) -> None:
         """TCP 映射就绪 → 向所有已有 UDP 通道广播 TCP_READY。"""
         self._mapping_ready = True
         self.broadcast_tcp_ready()
 
     # ---------- 双打洞：UDP 通道建立 ----------
 
-    def on_udp_hole_ready(self, peer_id, peer_addr):
+    def on_udp_hole_ready(self, peer_id: str, peer_addr: Tuple[str, int]) -> None:
         """UDP 打洞成功：建立可靠 UDP 通道（共享 socket 模式）。"""
         sig = self.signaling
         if sig is None:
@@ -124,17 +127,17 @@ class LinkManager:
             if peer_id in self.udp_conns:
                 return
         try:
-            def _send(addr, data):
+            def _send(addr, data) -> None:
                 sig.send_udp_to(addr, data)
             try:
                 self._puncher.set_udp_hint(peer_id, peer_addr[0], peer_addr[1])
             except Exception:
                 pass
 
-            def _on_dead(addr):
+            def _on_dead(addr) -> None:
                 self._handle_udp_peer_dead(peer_id)
 
-            def _on_sync(t_go):
+            def _on_sync(t_go) -> None:
                 try:
                     rtt = rtp.get_sync_rtt()
                     if rtt:
@@ -143,13 +146,13 @@ class LinkManager:
                     pass
                 self._on_sync_ready(peer_id, t_go)
 
-            def _on_round(round_no, t_go_r):
+            def _on_round(round_no, t_go_r) -> None:
                 self._on_punch_round(peer_id, round_no, t_go_r)
 
-            def _on_tcp_ready():
+            def _on_tcp_ready() -> None:
                 self._on_peer_tcp_ready(peer_id)
 
-            def _on_punch_fail():
+            def _on_punch_fail() -> None:
                 self._on_peer_punch_fail(peer_id)
 
             rtp = UdpReliableSocket(_send, peer_addr, log=self.log,
@@ -197,7 +200,7 @@ class LinkManager:
         except Exception as e:
             self.log("[SYNC] 启动判断异常: %s" % e)
 
-    def _maybe_start_sync(self, peer_id, rtp):
+    def _maybe_start_sync(self, peer_id: str, rtp: UdpReliableSocket) -> None:
         try:
             time.sleep(0.3)
             with self.lock:
@@ -209,7 +212,7 @@ class LinkManager:
         except Exception as e:
             self.log("[SYNC] 异常: %s" % e)
 
-    def _on_sync_ready(self, peer_id, t_go):
+    def _on_sync_ready(self, peer_id: str, t_go: int) -> None:
         with self.lock:
             conn = self.connections.get(peer_id)
             if conn and conn.state == C.STATE_CONNECTED:
@@ -220,7 +223,7 @@ class LinkManager:
         threading.Thread(target=self._sync_punch_task,
                          args=(peer_id, peer, t_go), daemon=True).start()
 
-    def _sync_punch_task(self, peer_id, peer, t_go):
+    def _sync_punch_task(self, peer_id: str, peer: dict, t_go: int) -> None:
         """单次精准 TCP 打洞（不重试，因为 SYNC 已对齐时刻）。"""
         try:
             now_ms = int(time.time() * 1000)
@@ -237,11 +240,11 @@ class LinkManager:
         except Exception as e:
             self.log("[SYNC] TCP 打洞异常: %s" % e)
 
-    def get_udp_socket(self, peer_id):
+    def get_udp_socket(self, peer_id: str) -> Optional[UdpReliableSocket]:
         with self.lock:
             return self.udp_conns.get(peer_id)
 
-    def broadcast_tcp_ready(self):
+    def broadcast_tcp_ready(self) -> None:
         with self.lock:
             items = list(self.udp_conns.items())
         for pid, rtp in items:
@@ -251,7 +254,7 @@ class LinkManager:
             except Exception:
                 pass
 
-    def _on_peer_tcp_ready(self, peer_id):
+    def _on_peer_tcp_ready(self, peer_id: str) -> None:
         with self.lock:
             peer = self.members.get(peer_id)
             conn = self.connections.get(peer_id)
@@ -263,7 +266,7 @@ class LinkManager:
         self.log("[打洞] 对端 TCP 就绪，立即发起打洞 peer=%s" % peer_id)
         threading.Thread(target=self._punch_task, args=(peer, 0), daemon=True).start()
 
-    def _on_peer_punch_fail(self, peer_id):
+    def _on_peer_punch_fail(self, peer_id: str) -> None:
         """对端放弃 TCP → 关闭本端【半开连接】并回退 UDP。
 
         关键：对端放弃说明它那条方向没打通。本端即便 connect 成功，也可能
@@ -291,12 +294,12 @@ class LinkManager:
             except Exception:
                 pass
 
-    def _on_punch_round(self, peer_id, round_no, t_go_r):
+    def _on_punch_round(self, peer_id: str, round_no: int, t_go_r: int) -> None:
         with self._punch_round_cond:
             self._punch_round_evt[peer_id] = (round_no, t_go_r)
             self._punch_round_cond.notify_all()
 
-    def _wait_punch_round(self, peer_id, round_no, timeout):
+    def _wait_punch_round(self, peer_id: str, round_no: int, timeout: float) -> Optional[int]:
         deadline = time.time() + timeout
         with self._punch_round_cond:
             while True:
@@ -308,12 +311,12 @@ class LinkManager:
                     return None
                 self._punch_round_cond.wait(remain)
 
-    def _sleep_until_local(self, t_local_ms):
+    def _sleep_until_local(self, t_local_ms: int) -> None:
         remain = (t_local_ms - int(time.time() * 1000)) / 1000.0
         if remain > 0:
             time.sleep(min(remain, 3.0))
 
-    def _on_path_failure(self, peer_id, proto):
+    def _on_path_failure(self, peer_id: str, proto: str) -> None:
         sched = self._path_schedulers.get(peer_id)
         if not sched:
             return
@@ -325,17 +328,17 @@ class LinkManager:
         else:
             sched.remove("udp:%s" % peer_id)
 
-    def new_recv_epoch(self, peer_key):
+    def new_recv_epoch(self, peer_key: str) -> int:
         with self.lock:
             e = self._recv_epoch.get(peer_key, 0) + 1
             self._recv_epoch[peer_key] = e
             return e
 
-    def is_current_epoch(self, peer_key, epoch):
+    def is_current_epoch(self, peer_key: str, epoch: int) -> bool:
         with self.lock:
             return self._recv_epoch.get(peer_key) == epoch
 
-    def on_network_changed(self):
+    def on_network_changed(self) -> None:
         """宿主应用在检测到网络切换时调用（接口反转）。
 
         DPMP 是平台无关的库，无法自己感知网络变化（Wi-Fi/蜂窝切换、IP 变化
@@ -387,7 +390,7 @@ class LinkManager:
             except Exception:
                 pass
 
-    def _request_rebuild(self, peer_id):
+    def _request_rebuild(self, peer_id: str) -> None:
         now = time.time()
         with self._rebuild_cooldown_lock:
             last = self._rebuild_cooldown.get(peer_id, 0)
@@ -403,7 +406,7 @@ class LinkManager:
         except Exception as e:
             self.log("[房间] peer=%s 重新打洞请求失败: %s" % (peer_id, e))
 
-    def _handle_udp_peer_dead(self, peer_id):
+    def _handle_udp_peer_dead(self, peer_id: str) -> None:
         self.log("[UDP-RTP] peer=%s 通道失联，清理并触发重建" % peer_id)
         try:
             self._on_path_failure(peer_id, "udp")
@@ -427,14 +430,14 @@ class LinkManager:
 
     # ---------- 成员事件 ----------
 
-    def on_joined(self, members):
+    def on_joined(self, members: List[dict]) -> None:
         for m in members:
             self._add_member(m)
 
-    def on_member_join(self, member):
+    def on_member_join(self, member: dict) -> None:
         self._add_member(member)
 
-    def on_member_leave(self, peer_id):
+    def on_member_leave(self, peer_id: str) -> None:
         with self.lock:
             self.members.pop(peer_id, None)
             conn = self.connections.pop(peer_id, None)
@@ -452,7 +455,7 @@ class LinkManager:
             self._rebuild_cooldown.pop(peer_id, None)
         self.log("[房间] 成员离开 %s" % peer_id)
 
-    def on_punch_go(self, peer, at_ms):
+    def on_punch_go(self, peer: dict, at_ms: int) -> None:
         peer_id = peer.get("id")
         if not peer_id:
             return
@@ -464,7 +467,7 @@ class LinkManager:
             self.connections[peer_id] = Conn(peer)
         threading.Thread(target=self._punch_task, args=(peer, at_ms), daemon=True).start()
 
-    def on_inbound(self, sock, addr):
+    def on_inbound(self, sock: socket.socket, addr: Tuple[str, int]) -> bool:
         """处理 listener accept 到的连接：若匹配成员 TCP 公网映射则接管。
 
         回调必须在【释放锁之后】执行（get_conn 需要同一把锁，锁内回调会死锁）。
@@ -504,14 +507,14 @@ class LinkManager:
 
     # ---------- 通道查询 ----------
 
-    def get_socket(self, peer_id):
+    def get_socket(self, peer_id: str) -> Optional[socket.socket]:
         with self.lock:
             conn = self.connections.get(peer_id)
             if conn and conn.state == C.STATE_CONNECTED and conn.sock:
                 return conn.sock
         return None
 
-    def _channel_usable(self, sock):
+    def _channel_usable(self, sock: Any) -> bool:
         if sock is None:
             return False
         if getattr(sock, "is_udp_rtp", False):
@@ -524,11 +527,11 @@ class LinkManager:
         except Exception:
             return False
 
-    def mark_active(self, peer_id):
+    def mark_active(self, peer_id: str) -> None:
         with self.lock:
             self._peer_last_active[peer_id] = time.time()
 
-    def _idle_factor(self, peer_id, now):
+    def _idle_factor(self, peer_id: str, now: float) -> int:
         last = self._peer_last_active.get(peer_id, now)
         idle = now - last
         for threshold, factor in self.cfg.idle_factor_tiers:
@@ -536,7 +539,8 @@ class LinkManager:
                 return factor
         return self.cfg.idle_factor_max
 
-    def get_send_channel(self, peer_id, exclude_socks=None):
+    def get_send_channel(self, peer_id: str,
+                         exclude_socks: Optional[Set[int]] = None) -> Optional[tuple]:
         """按路径角色选路发送：优先热备，其次保守暖备，最后宽松暖备。
 
         返回 (sock, io_lock, is_udp, role) 或 None。
@@ -575,29 +579,29 @@ class LinkManager:
                 return (rtp, rtp.io_lock, True, "?")
         return None
 
-    def get_path_roles(self, peer_id):
+    def get_path_roles(self, peer_id: str) -> Dict[str, str]:
         sched = self._path_schedulers.get(peer_id)
         if not sched:
             return {}
         with sched.lock:
             return {pid: p.role for pid, p in sched.paths.items()}
 
-    def has_peer(self, peer_id):
+    def has_peer(self, peer_id: str) -> bool:
         with self.lock:
             return peer_id in self.connections
 
-    def get_conn(self, peer_id):
+    def get_conn(self, peer_id: str) -> Optional[Conn]:
         with self.lock:
             return self.connections.get(peer_id)
 
-    def get_peer_did(self, peer_id):
+    def get_peer_did(self, peer_id: str) -> str:
         with self.lock:
             m = self.members.get(peer_id)
             if m and m.get("did"):
                 return m["did"]
         return peer_id
 
-    def get_members(self):
+    def get_members(self) -> List[dict]:
         with self.lock:
             out = []
             for pid, m in self.members.items():
@@ -622,7 +626,7 @@ class LinkManager:
                 })
             return out
 
-    def _add_member(self, member):
+    def _add_member(self, member: dict) -> None:
         peer_id = member.get("id")
         if not peer_id:
             return
@@ -635,7 +639,7 @@ class LinkManager:
 
     # ---------- 打洞任务 ----------
 
-    def _punch_task(self, peer, at_ms):
+    def _punch_task(self, peer: dict, at_ms: int) -> None:
         """多轮重试打洞。
 
         每轮开始前【重读】self.members 里的最新 peer——对端的 pub_tcp
@@ -720,7 +724,7 @@ class LinkManager:
                     self._punch_active[peer_id] = c
             self._punch_sem.release()
 
-    def _install_socket(self, peer_id, result):
+    def _install_socket(self, peer_id: str, result: Any) -> None:
         with self.lock:
             old = self.connections.get(peer_id)
             if old and old.state == C.STATE_CONNECTED and old.sock:
@@ -757,13 +761,13 @@ class LinkManager:
             except Exception:
                 pass
 
-    def _apply_keepalive(self, sock):
+    def _apply_keepalive(self, sock: socket.socket) -> None:
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         except Exception:
             pass
 
-    def _close_sock(self, conn):
+    def _close_sock(self, conn: Optional[Conn]) -> None:
         if conn and conn.sock:
             try:
                 conn.sock.close()
@@ -773,7 +777,7 @@ class LinkManager:
 
     # ---------- 保活循环 ----------
 
-    def _keepalive_loop(self):
+    def _keepalive_loop(self) -> None:
         _next_due = {}
         while self._running:
             time.sleep(self.cfg.keepalive_tick)
@@ -849,7 +853,7 @@ class LinkManager:
                     except Exception:
                         pass
 
-    def _probe_path(self, peer_id, path_id, path):
+    def _probe_path(self, peer_id: str, path_id: str, path: Any) -> bool:
         if path.proto == "tcp":
             with self.lock:
                 conn = self.connections.get(peer_id)
@@ -866,7 +870,7 @@ class LinkManager:
             except Exception:
                 return False
 
-    def _alive(self, sock):
+    def _alive(self, sock: socket.socket) -> bool:
         if not sock:
             return False
         try:

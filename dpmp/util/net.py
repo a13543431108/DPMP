@@ -6,9 +6,10 @@ import json
 import os
 import socket
 import uuid
+from typing import List, Optional
 
 
-def get_all_local_ips(ipv6=False):
+def get_all_local_ips(ipv6: bool = False) -> List[str]:
     """获取本机所有 IP 地址。ipv6=True 则包含 IPv6。"""
     ips = set()
     try:
@@ -35,7 +36,7 @@ def get_all_local_ips(ipv6=False):
     return list(ips)
 
 
-def get_subnet_for_ip(ip_str):
+def get_subnet_for_ip(ip_str: str) -> Optional[str]:
     """推断某 IP 所属子网 CIDR。IPv6 暂不支持，返回 None。"""
     if ":" in ip_str:
         return None
@@ -53,7 +54,7 @@ def get_subnet_for_ip(ip_str):
         return None
 
 
-def get_all_subnets():
+def get_all_subnets() -> List[str]:
     subnets = set()
     for ip in get_all_local_ips(ipv6=False):
         cidr = get_subnet_for_ip(ip)
@@ -62,7 +63,7 @@ def get_all_subnets():
     return list(subnets)
 
 
-def get_broadcast_addrs():
+def get_broadcast_addrs() -> List[str]:
     addrs = set()
     for ip_str in get_all_local_ips(ipv6=False):
         cidr = get_subnet_for_ip(ip_str)
@@ -77,7 +78,7 @@ def get_broadcast_addrs():
     return list(addrs)
 
 
-def get_mac_address():
+def get_mac_address() -> str:
     """尽力获取本机 MAC 地址（展示用，不作识别主键）。"""
     try:
         node = uuid.getnode()
@@ -89,7 +90,7 @@ def get_mac_address():
         return ""
 
 
-def get_or_create_device_id(config_path):
+def get_or_create_device_id(config_path: str) -> str:
     """获取或生成持久化的设备 UUID（稳定标识，跨重启不变）。
 
     config_path：配置文件路径（JSON），不存在则创建。

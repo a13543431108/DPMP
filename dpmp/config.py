@@ -14,19 +14,21 @@
 全局默认：dpmp.config.DEFAULT_CONFIG（改它影响所有未显式传 config 的实例）。
 """
 
+from typing import Any, Dict, List, Tuple
+
 from .protocol import constants as C
 
 
 class Config:
     """DPMP 调优参数集合。所有字段都有默认值，可逐个覆盖。"""
 
-    def __init__(self, **kw):
+    def __init__(self, **kw: Any) -> None:
         self.reset()
         for k, v in kw.items():
             if hasattr(self, k):
                 setattr(self, k, v)
 
-    def reset(self):
+    def reset(self) -> None:
         """恢复全部默认值。"""
         # ---- UDP-RTP ----
         self.rtp_max_payload = C.RTP_MAX_PAYLOAD
