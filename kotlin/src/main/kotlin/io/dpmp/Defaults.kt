@@ -1,9 +1,6 @@
 package io.dpmp
 
 import io.dpmp.protocol.C
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 
 /**
  * DPMP 应用默认值（非协议常量）。
@@ -19,30 +16,10 @@ object Defaults {
     const val DEFAULT_SERVER_PORT: Int = C.DEFAULT_SERVER_PORT
     const val DEFAULT_SERVER_TCP_PORT: Int = C.DEFAULT_SERVER_TCP_PORT
     const val DEFAULT_NAT_PROBE_PORT: Int = C.NAT_PROBE_PORT
-    const val DEFAULT_SERVER_EXPIRES: String = "2026-11-01"
-    const val EXPIRY_WARN_DAYS: Int = 7
 
     /** 默认服务器候选。每项为 (ip, 信令端口, TCP 映射观测端口, NAT 探测端口)。 */
     fun defaultServers(): List<ServerSpec> =
         listOf(ServerSpec(DEFAULT_SERVER, DEFAULT_SERVER_PORT, DEFAULT_SERVER_TCP_PORT, DEFAULT_NAT_PROBE_PORT))
-
-    /** 到期状态。 */
-    data class ExpiryStatus(val status: String, val daysLeft: Int?, val expires: String)
-
-    fun checkDefaultServerExpiry(today: LocalDate = LocalDate.now()): ExpiryStatus {
-        val exp = try {
-            LocalDate.parse(DEFAULT_SERVER_EXPIRES, DateTimeFormatter.ISO_LOCAL_DATE)
-        } catch (_: Exception) {
-            return ExpiryStatus("unknown", null, DEFAULT_SERVER_EXPIRES)
-        }
-        val daysLeft = ChronoUnit.DAYS.between(today, exp).toInt()
-        val status = when {
-            daysLeft < 0 -> "expired"
-            daysLeft <= EXPIRY_WARN_DAYS -> "soon"
-            else -> "ok"
-        }
-        return ExpiryStatus(status, daysLeft, DEFAULT_SERVER_EXPIRES)
-    }
 }
 
 /** 一个信令服务器描述：(ip, 信令端口, TCP 映射观测端口, NAT 探测端口)。 */

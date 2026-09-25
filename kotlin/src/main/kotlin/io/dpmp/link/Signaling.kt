@@ -131,16 +131,6 @@ class SignalingClient(
 
     fun start(): Boolean {
         if (running) return false
-        if (usingDefaultServer) {
-            try {
-                val st = Defaults.checkDefaultServerExpiry()
-                if (st.status == "expired") {
-                    log("[信令] ⚠ 默认服务器已于 " + st.expires + " 过期。请改用自建服务器或备用服务器。")
-                } else if (st.status == "soon") {
-                    log("[信令] ⚠ 默认服务器将于 " + st.expires + " 到期（剩 " + st.daysLeft + " 天），建议尽早改用自建服务器。")
-                }
-            } catch (_: Exception) {}
-        }
         running = true
         val n = serverList.size
         var lastErr = ""

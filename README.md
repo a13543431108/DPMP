@@ -174,21 +174,16 @@ SignalingClient(servers=[{"ip": "1.2.3.4", "port": 3336}], ...)
 不传任何服务器时，回退到内置默认服务器，方便开箱即用：
 
 ```python
-from dpmp import DEFAULT_SERVER, DEFAULT_SERVER_EXPIRES, check_default_server_expiry
+from dpmp import DEFAULT_SERVER
 
 print(DEFAULT_SERVER)            # "42.194.133.132"
-print(DEFAULT_SERVER_EXPIRES)    # "2026-11-01"
-print(check_default_server_expiry())
-# {'status': 'ok', 'days_left': 38, 'expires': '2026-11-01'}
 ```
 
 默认服务器**只是便利**，不是依赖：
 
-- 使用默认服务器时，`start()` 会自动检查到期并在临近/过期时提示；
 - 传了自己的 `server_ip` / `servers` 后，默认服务器**完全被绕过**；
 - **局域网模式根本不使用服务器**。
 
-> ⚠️ 默认服务器到期后，请改用自建服务器或备用服务器。
 > 修改默认值见 `dpmp/defaults.py`。
 
 ---
@@ -248,9 +243,8 @@ dpmp.DEFAULT_CONFIG.rtp_window = 200
 | 名称 | 说明 |
 |---|---|
 | `Config` / `DEFAULT_CONFIG` | 调优参数 |
-| `DEFAULT_SERVER` / `DEFAULT_SERVER_EXPIRES` | 默认服务器与到期日 |
+| `DEFAULT_SERVER` | 默认服务器地址 |
 | `default_servers()` | 默认服务器候选列表 |
-| `check_default_server_expiry()` | 检查默认服务器到期状态 |
 | `__version__` / `__protocol__` | 版本 / 协议标识 |
 
 ### 连接层（`dpmp.link`）

@@ -20,14 +20,12 @@ P2P 连接与传输底层库。
 """
 
 from .config import Config, DEFAULT_CONFIG
-from .defaults import (DEFAULT_SERVER, DEFAULT_SERVER_EXPIRES,
-                       default_servers, check_default_server_expiry)
+from .defaults import DEFAULT_SERVER, default_servers
 
 __version__: str = "0.1.3"
 __protocol__: str = "DPMP/1.0"
 
 __all__ = [
     "Config", "DEFAULT_CONFIG",
-    "DEFAULT_SERVER", "DEFAULT_SERVER_EXPIRES",
-    "default_servers", "check_default_server_expiry",
+    "DEFAULT_SERVER", "default_servers",
 ]

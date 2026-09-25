@@ -199,21 +199,6 @@ class SignalingClient:
         """
         if self._running:
             return False
-        # 默认服务器到期提醒（仅在使用默认服务器时）
-        if self._using_default_server:
-            try:
-                from ..defaults import check_default_server_expiry
-                st = check_default_server_expiry()
-                if st["status"] == "expired":
-                    self.log("[信令] ⚠ 默认服务器已于 %s 过期（%d 天前）。"
-                             "请改用自建服务器或备用服务器。"
-                             % (st["expires"], -st["days_left"]))
-                elif st["status"] == "soon":
-                    self.log("[信令] ⚠ 默认服务器将于 %s 到期（剩 %d 天），"
-                             "建议尽早改用自建服务器。"
-                             % (st["expires"], st["days_left"]))
-            except Exception:
-                pass
         self._running = True
         n = len(self._servers)
         last_err = ""
