@@ -359,6 +359,13 @@ DPMP 内部编排完整重建：
 
 ## 版本历史
 
+### 0.1.4
+
+- **移除**：默认服务器的**到期机制**（`DEFAULT_SERVER_EXPIRES` /
+  `check_default_server_expiry` / `EXPIRY_WARN_DAYS`）。默认服务器地址不变；
+  连不上时本就自动切换备用服务器，无需到期提醒。
+- 覆盖 Python 端、Kotlin 端与文档。
+
 ### 0.1.3（房间密码）
 
 - **新增**：**房间密码**（信令协议版本 2）。

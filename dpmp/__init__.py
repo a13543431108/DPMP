@@ -22,7 +22,7 @@ P2P 连接与传输底层库。
 from .config import Config, DEFAULT_CONFIG
 from .defaults import DEFAULT_SERVER, default_servers
 
-__version__: str = "0.1.3"
+__version__: str = "0.1.4"
 __protocol__: str = "DPMP/1.0"
 
 __all__ = [
