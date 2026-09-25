@@ -39,12 +39,3 @@ include = ["dpmp*"]
 
 [tool.setuptools.package-data]
 dpmp = ["py.typed"]
-
-[tool.setuptools.package-data]
-dpmp = ["py.typed"]
-
-[tool.setuptools.package-data]
-dpmp = ["py.typed"]
-
-[tool.setuptools.package-data]
-dpmp = ["py.typed"]
