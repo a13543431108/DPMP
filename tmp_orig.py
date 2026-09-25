@@ -12,7 +12,6 @@
 本服务器不转发任何文件数据，仅处理控制小包。
 """
 
-import hashlib
 import json
 import os
 import socket
@@ -35,7 +34,7 @@ except Exception:
 #   2. 同目录下的 config.json（或 --config 指定的文件）
 #   3. 命令行参数（--port 等）
 DEFAULTS = {
-    "VER": 2,                  # 协议版本（2 = 支持房间密码）
+    "VER": 1,                  # 协议版本
     "LISTEN_IP": "0.0.0.0",    # 监听地址
     "LISTEN_PORT": 3336,       # UDP 信令端口
     "TCP_LISTEN_PORT": 3337,   # TCP 映射观测端口
@@ -159,7 +158,7 @@ def save_state():
     try:
         path = _state_path or _resolve_state_path()
         with state_lock:
-            data = {"rooms": {}, "id_index": {}, "room_pwd": {}}
+            data = {"rooms": {}, "id_index": {}}
             for rname, members in rooms.items():
                 data["rooms"][rname] = {}
                 for mid, m in members.items():
@@ -172,10 +171,6 @@ def save_state():
                     }
             for mid, (rname, addr) in id_index.items():
                 data["id_index"][mid] = [rname, list(addr)]
-            # 房间密码（sha256 hex 或 None）一并持久化，重启后保护不丢失
-            for rname, hp in room_pwd.items():
-                if rname in rooms:
-                    data["room_pwd"][rname] = hp
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
@@ -198,11 +193,8 @@ def load_state():
         return
     now = now_ms()
     with state_lock:
-        # 兼容旧状态文件（无 room_pwd 字段）→ 一律视为开放房间
-        saved_pwd = data.get("room_pwd") or {}
         for rname, members in (data.get("rooms") or {}).items():
             rooms[rname] = {}
-            room_pwd[rname] = saved_pwd.get(rname)  # 缺省 None = 开放
             for mid, m in members.items():
                 rooms[rname][mid] = {
                     "name": m.get("name", ""),
@@ -221,7 +213,6 @@ def load_state():
 
 # ==================== 全局状态（所有处理函数共用） ====================
 rooms = {}          # {room_name: {member_id: member_dict}}
-room_pwd = {}       # {room_name: sha256hex 或 None}  None=开放房间，无密码
 id_index = {}       # {member_id: (room_name, addr_tuple)}
 tcp_mappings = {}   # {member_id: (ip, port)}  服务器观测到的客户端 TCP 公网映射
 tcp_socks = {}      # {member_id: socket}  保持 TCP 映射存活的连接
@@ -303,12 +294,6 @@ def get_public_ip(timeout=3):
 
 def now_ms():
     return int(time.time() * 1000)
-
-
-def hash_room_pwd(room, pwd):
-    """房间密码哈希：sha256("room:pwd")，固定 64 hex。
-    加盐房间名，避免不同房间同密码得到相同哈希。"""
-    return hashlib.sha256((str(room) + ":" + str(pwd)).encode("utf-8")).hexdigest()
 
 
 def gen_id():
@@ -402,37 +387,14 @@ def handle_join(sock, msg, addr):
         send_to(addr, {"type": T_ERROR, "ver": VER, "code": "NO_ROOM"})
         return
 
-    # ---- 房间密码校验（兼容：不带 pwd = 完全开放，等同旧版） ----
-    # 校验 + 创建必须在【同一把锁】内完成，否则两个新客户端并发创建时
-    # 会 TOCTOU：都通过校验，后者用不同密码覆盖/绕过前者。
-    given_pwd = str(msg.get("pwd", "") or "")
     is_new_room = False
     removed_dups = []   # 同一设备旧 id（网络重建遗留），需广播离开
-    err_code = None
     with state_lock:
         if room not in rooms:
-            # 首个加入者创建房间：带密码→受保护，不带→开放
             rooms[room] = {}
-            room_pwd[room] = hash_room_pwd(room, given_pwd) if given_pwd else None
             is_new_room = True
-        else:
-            stored_pwd = room_pwd.get(room)   # None = 开放
-            if stored_pwd is None and given_pwd:
-                err_code = "ROOM_OPEN"
-            elif stored_pwd is not None and not given_pwd:
-                err_code = "NEED_PASSWORD"
-            elif stored_pwd is not None and hash_room_pwd(room, given_pwd) != stored_pwd:
-                err_code = "BAD_PASSWORD"
         members = rooms[room]
-    if err_code is not None:
-        send_to(addr, {"type": T_ERROR, "ver": VER, "code": err_code})
-        _pwderr_msg = {"ROOM_OPEN": "房间是开放房间，但客户端带了密码",
-                       "NEED_PASSWORD": "房间需要密码，客户端未提供",
-                       "BAD_PASSWORD": "房间密码错误"}
-        print("[房间] 拒绝加入 '%s'：%s" % (room, _pwderr_msg.get(err_code, err_code)))
-        return
 
-    with state_lock:
         my_did = msg.get("did", "")
         reuse_id = str(msg.get("reuse_id", "") or "").strip()
 
@@ -494,9 +456,7 @@ def handle_join(sock, msg, addr):
         existing = [member_for_peer(mid, m) for mid, m in members.items() if mid != my_id]
         targets = [(mid, m) for mid, m in members.items() if mid != my_id]
 
-    room_is_open = (room_pwd.get(room) is None)
-    send_to(addr, {"type": T_JOINED, "ver": VER, "id": my_id,
-                   "members": existing, "room_open": room_is_open})
+    send_to(addr, {"type": T_JOINED, "ver": VER, "id": my_id, "members": existing})
 
     # 通知其他成员：被去重移除的旧 id 已离开（避免它们继续对旧 id 打洞）
     for dup_id in removed_dups:
@@ -588,7 +548,6 @@ def remove_member(sock, mid):
         room_destroyed = not rooms.get(room)
         if room_destroyed:
             rooms.pop(room, None)
-            room_pwd.pop(room, None)   # 房间空了：密码一并删除
         others = [(oid, m) for oid, m in rooms.get(room, {}).items()]
         remaining = len(others)
         s = tcp_socks.pop(mid, None)

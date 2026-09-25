@@ -52,7 +52,9 @@ class SignalingClient(
     private val config: Config = Config.DEFAULT,
     servers: List<Any>? = null,
     private val autoFailover: Boolean = true,
-    private val connectTimeout: Double = 10.0
+    private val connectTimeout: Double = 10.0,
+    /** 房间密码（可选）：空 = 开放房间。仅存内存，随 join 发送，重建时重发。 */
+    private val password: String = ""
 ) {
     private val serverList: List<ServerSpec>
     private val usingDefaultServer: Boolean
@@ -75,6 +77,19 @@ class SignalingClient(
 
     @Volatile var myId: String? = null
     private var joinedMembers: List<Map<String, Any?>> = emptyList()
+    /** 房间是否开放（服务器 ver>=2 才带此字段）。null = 服务器未提供。 */
+    @Volatile var roomOpen: Boolean? = null
+        private set
+    /** 服务器协议版本（旧服务器默认 1）。 */
+    @Volatile var serverVer: Int = 1
+        private set
+
+    /**
+     * 房间级拒绝码（服务器明确回了 error）：非空表示"服务器可达但拒绝加入"，
+     * 区别于"超时无响应"。房间级拒绝【不触发】多服务器故障转移。
+     */
+    @Volatile var lastJoinError: String? = null
+        private set
 
     @Volatile private var sock: DatagramSocket? = null
     @Volatile private var mapSock: Socket? = null
@@ -129,6 +144,7 @@ class SignalingClient(
         running = true
         val n = serverList.size
         var lastErr = ""
+        var joinRejected: String? = null
         for (idx in 0 until n) {
             val spec = serverList[idx]
             serverIdx = idx
@@ -136,16 +152,26 @@ class SignalingClient(
             serverTcpPort = spec.tcpPort; natProbePort = spec.natPort
             if (idx > 0) log("[信令] 切换备用服务器 -> " + spec.ip + ":" + spec.port + "（第 " + (idx + 1) + "/" + n + " 个）")
             if (tryConnectOne()) return true
+            // 房间级拒绝：换服务器也没用（同一房间同一密码），立即停止故障转移
+            val rej = lastJoinError
+            if (rej != null) { joinRejected = rej; break }
             lastErr = spec.ip + ":" + spec.port
             if (!autoFailover) break
         }
         running = false
+        if (joinRejected != null) {
+            // 服务器可达但明确拒绝：错误详情已由 onError 上报，
+            // 【不再】误报"无法连接任何信令服务器"，也【不发】CONNECT_FAILED。
+            log("[信令] 加入房间被拒绝（" + joinRejected + "），已停止尝试其他服务器")
+            return false
+        }
         log("[信令] 无法连接任何信令服务器（共 " + n + " 个候选，最后尝试 " + lastErr + "）。")
         onError?.invoke("CONNECT_FAILED")
         return false
     }
 
     private fun tryConnectOne(): Boolean {
+        lastJoinError = null
         val ds = try {
             DatagramSocket().apply { soTimeout = (config.recvTimeout * 1000).toInt() }
         } catch (e: Exception) {
@@ -154,7 +180,13 @@ class SignalingClient(
         sock = ds
         sendJoin()
         if (!waitJoined()) {
-            log("[信令] 连接 " + serverIp + ":" + serverPort + " 失败（" + connectTimeout.toInt() + " 秒内无响应）")
+            if (lastJoinError != null) {
+                // 服务器可达但明确拒绝加入（密码错/房间满等）：
+                // 换服务器也没用（同一房间同一密码），不发"无响应"误导日志。
+                log("[信令] " + serverIp + ":" + serverPort + " 拒绝加入（" + lastJoinError + "）")
+            } else {
+                log("[信令] 连接 " + serverIp + ":" + serverPort + " 失败（" + connectTimeout.toInt() + " 秒内无响应）")
+            }
             try { ds.close() } catch (_: Exception) {}
             sock = null
             return false
@@ -360,6 +392,9 @@ class SignalingClient(
         msg["name"] = name; msg["tcp"] = tcpPort; msg["lan"] = lanIpList
         msg["did"] = deviceId
         if (reuseId.isNotEmpty()) msg["reuse_id"] = reuseId
+        // 房间密码：仅在【有密码时】才带该字段；无密码时不发 pwd，
+        // 报文与旧版完全一致 → 开放房间零兼容风险。
+        if (password.isNotEmpty()) msg["pwd"] = password
         send(msg)
     }
 
@@ -457,11 +492,14 @@ class SignalingClient(
                     myId = msg["id"] as? String
                     @Suppress("UNCHECKED_CAST")
                     joinedMembers = (msg["members"] as? List<Map<String, Any?>>) ?: emptyList()
+                    roomOpen = msg["room_open"] as? Boolean
+                    serverVer = (msg["ver"] as? Number)?.toInt() ?: 1
                     return true
                 }
                 C.T_ERROR -> {
-                    onError?.invoke(msg["code"] as? String ?: "UNKNOWN")
-                    running = false
+                    val code = msg["code"] as? String ?: "UNKNOWN"
+                    lastJoinError = code
+                    onError?.invoke(code)
                     return false
                 }
             }

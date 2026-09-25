@@ -11,8 +11,11 @@ import java.io.File
  * 与 Python 端 examples/echo.py 对应。
  *
  * 用法：
- *     设备 A：kotlin ...EchoKt --server 1.2.3.4 --room myroom --name Alice
- *     设备 B：kotlin ...EchoKt --server 1.2.3.4 --room myroom --name Bob
+ *     设备 A（创建受保护房间）：
+ *         kotlin ...EchoKt --server 1.2.3.4 --room myroom --pwd s3cret --name Alice
+ *     设备 B（另一台机器，须密码一致）：
+ *         kotlin ...EchoKt --server 1.2.3.4 --room myroom --pwd s3cret --name Bob
+ *     不带 --pwd = 开放房间，任何人凭房间号直接进。
  *
  * 运行时：
  *     · 直接输入文字并回车 → 广播给房间内所有已连接的对端
@@ -23,6 +26,7 @@ fun main(args: Array<String>) {
     var server: String? = null
     var port = 3336
     var room: String? = null
+    var pwd = ""
     var name: String? = null
     var tcpPort = 9998
     var udpHolePort = 9996
@@ -33,6 +37,7 @@ fun main(args: Array<String>) {
             "--server" -> { server = args.getOrNull(i + 1); i++ }
             "--port" -> { port = args.getOrNull(i + 1)?.toIntOrNull() ?: 3336; i++ }
             "--room" -> { room = args.getOrNull(i + 1); i++ }
+            "--pwd" -> { pwd = args.getOrNull(i + 1) ?: ""; i++ }
             "--name" -> { name = args.getOrNull(i + 1); i++ }
             "--tcp-port" -> { tcpPort = args.getOrNull(i + 1)?.toIntOrNull() ?: 9998; i++ }
             "--udp-hole-port" -> { udpHolePort = args.getOrNull(i + 1)?.toIntOrNull() ?: 9996; i++ }
@@ -40,7 +45,7 @@ fun main(args: Array<String>) {
         i++
     }
     if (room == null || name == null) {
-        println("用法: --room <房间号> --name <显示名> [--server ip] [--port 3336]")
+        println("用法: --room <房间号> --name <显示名> [--pwd 密码] [--server ip] [--port 3336]")
         return
     }
 
@@ -55,6 +60,8 @@ fun main(args: Array<String>) {
         punchLocalPort = tcpPort,
         udpHolePort = udpHolePort,
         deviceId = did,
+        // 房间密码：空 = 开放房间；填了 = 受保护房间（首位加入者决定性质）。
+        password = pwd,
         log = { println("[信令] " + it) }
     )
 

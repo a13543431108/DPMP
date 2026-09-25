@@ -6,10 +6,13 @@
 
 用法：
     # 需要一台已部署的 DPMP 信令服务器（见项目 server/ 目录）
-    # 设备 A：
+    # 设备 A（创建受保护房间）：
+    python echo.py --server 1.2.3.4 --room myroom --pwd s3cret --name Alice
+    # 设备 B（另一台机器，须密码一致）：
+    python echo.py --server 1.2.3.4 --room myroom --pwd s3cret --name Bob
+
+    # 不带 --pwd = 开放房间，任何人凭房间号直接进：
     python echo.py --server 1.2.3.4 --room myroom --name Alice
-    # 设备 B（另一台机器）：
-    python echo.py --server 1.2.3.4 --room myroom --name Bob
 
     # 不做参数时使用内置默认服务器
     python echo.py --room myroom --name Alice
@@ -41,6 +44,7 @@ def main():
                     help="信令服务器地址（不填则用内置默认服务器）")
     ap.add_argument("--port", type=int, default=3336, help="信令端口（默认 3336）")
     ap.add_argument("--room", required=True, help="房间号（两端填同一个）")
+    ap.add_argument("--pwd", default="", help="房间密码（可选；不填=开放房间，谁都能进）")
     ap.add_argument("--name", required=True, help="显示名")
     ap.add_argument("--tcp-port", type=int, default=9998, help="打洞/长连接 TCP 端口")
     ap.add_argument("--udp-hole-port", type=int, default=9996, help="UDP 打洞端口")
@@ -56,6 +60,9 @@ def main():
         punch_local_port=args.tcp_port,
         udp_hole_port=args.udp_hole_port,
         device_id=did,
+        # 房间密码：空 = 开放房间（任何人凭房间号可进）；填了 = 受保护房间。
+        # 首位加入者决定房间性质；后续加入者密码不匹配会被服务器拒绝。
+        password=args.pwd,
         log=lambda m: print("[信令]", m),
     )
     if args.server:

@@ -120,7 +120,8 @@ class SignalingClient:
                  config=None,
                  servers: Any = None,
                  auto_failover: bool = True,
-                 connect_timeout: float = 10.0) -> None:
+                 connect_timeout: float = 10.0,
+                 password: Optional[str] = None) -> None:
         if config is None:
             from ..config import DEFAULT_CONFIG
             config = DEFAULT_CONFIG
@@ -148,6 +149,9 @@ class SignalingClient:
         self.tcp_port = tcp_port
         self.lan_ips = list(lan_ips or [])
         self.device_id = device_id or ""
+        # 房间密码（可选）：空串/None = 开放房间。仅存内存，随 join 发送，
+        # 网络切换重建时一并重发。
+        self.password = str(password) if password else ""
         self.punch_local_port = punch_local_port
         # 房间模式 UDP 打洞端口（默认 9996，可自定义以便同机多实例 / 测试）
         self.udp_hole_port = udp_hole_port or C.ROOM_UDP_PORT
@@ -165,6 +169,9 @@ class SignalingClient:
         self.log = log or (lambda msg: None)
         self.my_id = None
         self._joined_members = []
+        # 房间级拒绝码（服务器明确回了 error）：非空表示"服务器可达但拒绝加入"，
+        # 区别于"超时无响应"。房间级拒绝【不触发】多服务器故障转移。
+        self.last_join_error = None
         self.sock = None
         self.map_sock = None
         self._running = False
@@ -210,6 +217,7 @@ class SignalingClient:
         self._running = True
         n = len(self._servers)
         last_err = ""
+        join_rejected = None   # 房间级拒绝码（非空 → 服务器可达但拒绝加入）
         for idx in range(n):
             (ip, port, tcp_port, nat_port) = self._servers[idx]
             self._server_idx = idx
@@ -222,11 +230,20 @@ class SignalingClient:
                          % (ip, port, idx + 1, n))
             if self._try_connect_one():
                 return True
+            # 房间级拒绝：换服务器也没用（同一房间同一密码），立即停止故障转移
+            if self.last_join_error:
+                join_rejected = self.last_join_error
+                break
             last_err = "%s:%d" % (ip, port)
             if not self._auto_failover:
                 break
-        # 全部失败
         self._running = False
+        if join_rejected:
+            # 服务器可达但明确拒绝：错误详情已由 on_error 上报，
+            # 【不再】误报"无法连接任何信令服务器"，也【不发】CONNECT_FAILED。
+            self.log("[信令] 加入房间被拒绝（%s），已停止尝试其他服务器" % join_rejected)
+            return False
+        # 真正连不上：全部候选超时无响应
         err = ("[信令] 无法连接任何信令服务器（共 %d 个候选，最后尝试 %s）。"
                "请检查：服务器是否已启动、地址是否正确、"
                "防火墙是否放行 UDP。" % (n, last_err))
@@ -240,6 +257,7 @@ class SignalingClient:
 
     def _try_connect_one(self) -> bool:
         """尝试连接当前 self.server_ip 并加入房间。成功返回 True。"""
+        self.last_join_error = None
         try:
             fam = socket.AF_INET6 if ":" in self.server_ip else socket.AF_INET
             self.sock = socket.socket(fam, socket.SOCK_DGRAM)
@@ -249,8 +267,14 @@ class SignalingClient:
             return False
         self._send_join()
         if not self._wait_joined():
-            self.log("[信令] 连接 %s:%d 失败（%.0f 秒内无响应）"
-                     % (self.server_ip, self.server_port, self.connect_timeout))
+            if self.last_join_error:
+                # 服务器可达但明确拒绝加入（密码错/房间满等）：
+                # 换服务器也没用（同一房间同一密码），不发"无响应"误导日志。
+                self.log("[信令] %s:%d 拒绝加入（%s）"
+                         % (self.server_ip, self.server_port, self.last_join_error))
+            else:
+                self.log("[信令] 连接 %s:%d 失败（%.0f 秒内无响应）"
+                         % (self.server_ip, self.server_port, self.connect_timeout))
             try:
                 self.sock.close()
             except Exception:
@@ -501,6 +525,10 @@ class SignalingClient:
         # 网络重建时携带旧 id，服务器复用之（协议向后兼容：旧服务器忽略该字段）
         if self._reuse_id:
             msg["reuse_id"] = self._reuse_id
+        # 房间密码：仅在【有密码时】才带该字段。无密码时不发 pwd，
+        # 报文与旧版完全一致 → 开放房间零兼容风险。
+        if self.password:
+            msg["pwd"] = self.password
         self._send(msg)
 
     def _sync_time(self) -> None:
@@ -611,11 +639,15 @@ class SignalingClient:
             if t == C.T_JOINED:
                 self.my_id = msg.get("id")
                 self._joined_members = msg.get("members", [])
+                # 房间是否开放（服务器 ver>=2 才带此字段）
+                self.room_open = msg.get("room_open", None)
+                self.server_ver = msg.get("ver", 1)
                 return True
             elif t == C.T_ERROR:
+                code = msg.get("code", "UNKNOWN")
+                self.last_join_error = code
                 if self.on_error:
-                    self.on_error(msg.get("code", "UNKNOWN"))
-                self._running = False
+                    self.on_error(code)
                 return False
         return False
 

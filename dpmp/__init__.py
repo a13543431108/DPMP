@@ -23,7 +23,7 @@ from .config import Config, DEFAULT_CONFIG
 from .defaults import (DEFAULT_SERVER, DEFAULT_SERVER_EXPIRES,
                        default_servers, check_default_server_expiry)
 
-__version__: str = "0.1.2"
+__version__: str = "0.1.3"
 __protocol__: str = "DPMP/1.0"
 
 __all__ = [

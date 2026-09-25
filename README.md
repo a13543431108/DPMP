@@ -58,6 +58,7 @@ from dpmp.link.manager import LinkManager
 sig = SignalingClient(
     servers=["your.server.com:3336", "backup.com:3336"],  # 多服务器故障转移
     room="my_room",          # 房间号，两端填同一个
+    password="",             # 可选：留空=开放房间；填了=受保护房间（须密码一致）
     name="my_pc",            # 显示名
     tcp_port=9998,           # 本机打洞 / 长连接端口
     lan_ips=[],              # 本机局域网 IP（可空）
@@ -363,6 +364,16 @@ DPMP 内部编排完整重建：
 ---
 
 ## 版本历史
+
+### 0.1.3（房间密码）
+
+- **新增**：**房间密码**（信令协议版本 2）。
+  - 不填密码 = 房间完全开放，任何人凭房间号直接进（报文与旧版逐字节一致，零兼容风险）。
+  - 填密码 = 受保护房间，后续加入必须密码匹配；服务器存 sha256(room:pwd)，
+    错误码 NEED_PASSWORD / BAD_PASSWORD / ROOM_OPEN。
+  - join 新增可选字段 pwd；joined 新增 room_open；房间空了密码一并删除。
+  - Python 端 SignalingClient(password=...)；Kotlin 端 SignalingClient(password=...)；
+    信令服务器同步支持。协议细节见 DPMP_PROTOCOL.md §3.1。
 
 ### 0.1.2
 

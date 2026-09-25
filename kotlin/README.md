@@ -60,6 +60,7 @@ val sig = SignalingClient(
     serverIp = "your.server.com",
     serverPort = 3336,
     room = "my_room",
+    password = "",          // 可选：留空=开放房间；填了=受保护房间（须密码一致）
     name = "my_pc",
     tcpPort = 9998,
     punchLocalPort = 9998,
