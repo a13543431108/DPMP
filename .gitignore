@@ -20,3 +20,10 @@ server_state.json
 # 编辑器
 .idea/
 .vscode/
+
+# Kotlin
+kotlin/build/
+kotlin/.gradle/
+kotlin/build.log
+*.class
+
