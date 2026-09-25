@@ -454,7 +454,7 @@ class SignalingClient:
         with self._hole_targets_lock:
             self._hole_targets[key] = peer_id
 
-        def _probe():
+        def _probe() -> None:
             t_end = time.time() + self.cfg.udp_probe_duration
             sent = 0
             self.log("[UDP打洞] 开始向 %s 发探测包（%.1f 秒）"

@@ -34,7 +34,7 @@ def detect_nat_type(server_ip: str,
         _log("[NAT探测] 创建 UDP socket 失败: %s" % e)
         return {"type": "unknown", "primary": None, "alt": None}
 
-    def _probe(target_port, tag):
+    def _probe(target_port: int, tag: str) -> bool:
         try:
             payload = json.dumps({"type": C.T_NAT_PROBE, "ver": C.DPMP_VER,
                                   "probe": tag}).encode("utf-8")

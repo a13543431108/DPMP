@@ -116,7 +116,7 @@ class HolePuncher:
         # 降低 SO_REUSEPORT 入站匹配冲突。
         conn_sem = threading.Semaphore(self.cfg.punch_candidate_concurrency)
 
-        def worker(idx, ip, port):
+        def worker(idx: int, ip: str, port: int) -> None:
             try:
                 barrier.wait(timeout=3.0)
             except Exception:

@@ -96,7 +96,7 @@ class Discovery:
 
     # ---------- 消息构造 ----------
 
-    def _build_msg(self, **extra):
+    def _build_msg(self, **extra) -> bytes:
         msg = {
             C.LAN_F_HOSTNAME: self.hostname,
             C.LAN_F_DEVICE_ID: self.device_id,
@@ -105,7 +105,8 @@ class Discovery:
         msg.update(extra)
         return json.dumps(msg).encode("utf-8")
 
-    def _upsert_node(self, remote_ip, msg, source="udp"):
+    def _upsert_node(self, remote_ip: str, msg: dict,
+                     source: str = "udp") -> bool:
         """按 device_id 去重地插入/更新节点。返回 True 表示是新节点。"""
         device_id = msg.get(C.LAN_F_DEVICE_ID, "") or ""
         hostname = msg.get(C.LAN_F_HOSTNAME, remote_ip) or remote_ip
@@ -143,7 +144,7 @@ class Discovery:
 
     # ---------- 广播 ----------
 
-    def _start_broadcasters(self):
+    def _start_broadcasters(self) -> None:
         for ip_str in self.my_ips:
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -165,7 +166,8 @@ class Discovery:
         except Exception as e:
             self.log("[警告] 全局广播 socket 创建失败: %s" % e)
 
-    def _udp_broadcaster_on_sock(self, sock, bind_ip):
+    def _udp_broadcaster_on_sock(self, sock: socket.socket,
+                                 bind_ip: Optional[str]) -> None:
         """周期性广播搜索：前 5 秒每 0.2s，之后每 20s。"""
         start = time.time()
         while self.running:
@@ -200,7 +202,7 @@ class Discovery:
 
     # ---------- 接收 ----------
 
-    def _udp_listener(self):
+    def _udp_listener(self) -> None:
         sock4 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock4.bind(("", self.udp_port))
@@ -215,7 +217,7 @@ class Discovery:
         except Exception:
             sock6 = None
 
-        def listen_sock(sock, is_ipv6=False):
+        def listen_sock(sock, is_ipv6: bool = False) -> None:
             while self.running:
                 try:
                     data, addr = sock.recvfrom(1024)
@@ -273,7 +275,7 @@ class Discovery:
 
     # ---------- 扫描 ----------
 
-    def _scan_listener(self):
+    def _scan_listener(self) -> None:
         """扫描端口监听：收到扫描探测则回 scan_reply。"""
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -354,7 +356,7 @@ class Discovery:
         self._send_probe_to(ip)
         self.log("[手动添加] 已向 %s 发送探测" % ip)
 
-    def _send_probe_to(self, ip):
+    def _send_probe_to(self, ip: str) -> None:
         try:
             family = socket.AF_INET6 if ":" in ip else socket.AF_INET
             s = socket.socket(family, socket.SOCK_DGRAM)
@@ -370,7 +372,7 @@ class Discovery:
 
     # ---------- 下线 ----------
 
-    def _send_bye(self):
+    def _send_bye(self) -> None:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
