@@ -13,6 +13,10 @@ dist/
 .pytest_cache/
 .coverage
 
+# 服务器运行时状态（含在线房间/成员，不入库）
+server_state.json
+
+
 # 编辑器
 .idea/
 .vscode/

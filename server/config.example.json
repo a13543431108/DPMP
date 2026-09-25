@@ -1,0 +1,10 @@
+{
+  "_说明": "信令服务器配置。改这里即可，无需改源码。删除本文件则用默认值。",
+  "LISTEN_IP": "0.0.0.0",
+  "LISTEN_PORT": 3336,
+  "TCP_LISTEN_PORT": 3337,
+  "MAX_ROOM_SIZE": 16,
+  "HEARTBEAT_TIMEOUT": 30,
+  "CLEAN_INTERVAL": 5,
+  "PUNCH_DELAY_MS": 300
+}

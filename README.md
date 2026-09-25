@@ -228,7 +228,7 @@ dpmp.DEFAULT_CONFIG.rtp_window = 200
 
 ## 自建服务器
 
-信令服务器**独立开源**（见项目 `服务器/信令服务器.py`），
+信令服务器**随本项目一起开源**（见仓库 `server/` 目录），
 只牵线、不传数据、带宽近乎为零。可自行部署：
 
 - Linux：`install_linux.sh`（systemd）
