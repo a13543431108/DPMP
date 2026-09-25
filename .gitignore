@@ -25,5 +25,15 @@ server_state.json
 kotlin/build/
 kotlin/.gradle/
 kotlin/build.log
+kotlin/gpg_install.log
 *.class
+
+# GPG / 发布凭据（严禁入库）
+kotlin/.gpg-passphrase
+kotlin/.gpg-keygen-batch
+kotlin/.gpg-key.asc
+kotlin/secret.properties
+kotlin/local.properties
+kotlin/*.secret
+
 
