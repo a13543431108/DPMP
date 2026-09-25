@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dpmp"
+version = "0.1.1"
+description = "DPMP - Dual-Punch Multi-Path Protocol: P2P connectivity & transport library"
+readme = "README.md"
+requires-python = ">=3.7"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "DPMP" }]
+keywords = ["p2p", "nat-traversal", "hole-punching", "multi-path", "udp", "tcp", "peer-to-peer", "nat"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet",
+    "Topic :: System :: Networking",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/a13543431108/DPMP"
+Source = "https://github.com/a13543431108/DPMP"
+Issues = "https://github.com/a13543431108/DPMP/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dpmp*"]

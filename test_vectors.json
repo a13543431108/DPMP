@@ -1,0 +1,106 @@
+{
+  "_comment": "DPMP 协议测试向量。Python / Kotlin 两端单测都加载本文件，断言编解码结果一致。",
+  "protocol": "DPMP/1.0",
+  "rtp_header": {
+    "size": 12,
+    "struct": "!BIIHB",
+    "sample": {
+      "type": 4,
+      "seq": 10,
+      "ack": 20,
+      "length": 9,
+      "reserved": 0,
+      "hex": "040000000a00000014000900"
+    }
+  },
+  "sync_req": {
+    "struct": "!QB",
+    "fields": [
+      "t1_ms",
+      "proto_ver"
+    ],
+    "sample": {
+      "t1_ms": 123456,
+      "proto_ver": 2
+    }
+  },
+  "sync_ack": {
+    "struct": "!QQQB",
+    "fields": [
+      "t1",
+      "t2",
+      "t3",
+      "proto_ver"
+    ],
+    "sample": {
+      "t1": 1,
+      "t2": 2,
+      "t3": 3,
+      "proto_ver": 2
+    }
+  },
+  "sync_commit_v2": {
+    "struct": "!QQ",
+    "fields": [
+      "t_go_r",
+      "commit_id"
+    ],
+    "sample": {
+      "t_go_r": 999,
+      "commit_id": 7
+    }
+  },
+  "sync_commit_v1": {
+    "struct": "!Q",
+    "fields": [
+      "delta_ms"
+    ]
+  },
+  "punch_round": {
+    "struct": "!QQ",
+    "fields": [
+      "round_no",
+      "t_go_r"
+    ],
+    "sample": {
+      "round_no": 5,
+      "t_go_r": 888
+    }
+  },
+  "rtp_types": {
+    "DATA": 0,
+    "ACK": 1,
+    "FIN": 2,
+    "KEEPALIVE": 3,
+    "SYNC_REQ": 4,
+    "SYNC_ACK": 5,
+    "SYNC_COMMIT": 6,
+    "PUNCH_ROUND": 7,
+    "TCP_READY": 8,
+    "PUNCH_FAIL": 9
+  },
+  "ports": {
+    "scan": 9997,
+    "lan_udp": 9998,
+    "lan_tcp": 9999,
+    "signal": 3336,
+    "signal_tcp": 3337,
+    "nat_probe": 3338,
+    "room_udp": 9996,
+    "room_tcp": 9998
+  },
+  "roles": [
+    "hot",
+    "warm_safe",
+    "warm_loose",
+    "dead"
+  ],
+  "proto_floor": {
+    "tcp": 30,
+    "udp": 15
+  },
+  "proto_safe_cap": {
+    "tcp": 3600,
+    "udp": 60
+  }
+}

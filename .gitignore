@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# 构建产物
+build/
+dist/
+*.whl
+
+# 测试 / 缓存
+.pytest_cache/
+.coverage
+
+# 编辑器
+.idea/
+.vscode/
