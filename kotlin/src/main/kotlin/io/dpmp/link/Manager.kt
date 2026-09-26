@@ -16,6 +16,10 @@ class Conn(val member: Map<String, Any?>) {
     @Volatile var sock: DpmpSocket? = null
     @Volatile var addr: Pair<String, Int>? = null
     val ioLock = ReentrantLock()
+    // 是否为"约定主连接"（去重用）：同时打开可能形成两条独立 TCP 连接
+    // （各方向一条），两端各用一条 → 半开。用 ID 规则约定只保留一条：
+    // ID 大者的出站连接 = 主；ID 小者的入站连接 = 主。
+    @Volatile var preferred: Boolean = true
 }
 
 /**
@@ -195,6 +199,11 @@ class LinkManager(
     }
 
     private fun syncPunchTask(peerId: String, peer: Map<String, Any?>, tGo: Long) {
+        // 没靶子不打：无候选可连，精准打洞也无意义（等对端登记映射后重触发）。
+        if (!hasReachableTarget(peer)) {
+            log("[打洞] peer=" + peerId + " 无靶子，跳过精准打洞（不打）")
+            return
+        }
         try {
             val nowMs = System.currentTimeMillis()
             val waitSec = (tGo - nowMs) / 1000.0
@@ -426,23 +435,45 @@ class LinkManager(
             for ((pid, m) in members) {
                 val pubTcp = m["pub_tcp"] as? String ?: ""
                 if (pubTcp.isNotEmpty() && pubTcp == key) {
-                    val conn = connections[pid]
-                    if (conn != null && conn.state == C.STATE_CONNECTED && conn.sock != null) return true
-                    if (conn != null) closeSock(conn)
-                    val newConn = Conn(m)
-                    newConn.state = C.STATE_CONNECTED
-                    newConn.sock = SocketChannelAdapter(channel, addr)
-                    newConn.addr = addr
-                    connections[pid] = newConn
-                    readyPid = pid
-                    readyMember = HashMap(m)
-                    break
+                    readyPid = pid; readyMember = HashMap(m); break
+                }
+            }
+            // 回退：按【公网 IP】匹配。NAT 可能给"映射 socket"与"打洞 socket"
+            // 分配不同公网端口，导致精确 ip:port 匹配失败（握手成功但不认）。
+            if (readyPid == null && addr.first.isNotEmpty()) {
+                for ((pid, m) in members) {
+                    val pt = m["pub_tcp"] as? String ?: ""
+                    if (pt.isNotEmpty() && pt.substringBeforeLast(':') == addr.first) {
+                        readyPid = pid; readyMember = HashMap(m); break
+                    }
                 }
             }
         } finally {
             lock.unlock()
         }
         val pid = readyPid ?: return false
+        val myPref = inboundIsPreferred(pid)
+        lock.lock()
+        try {
+            val conn = connections[pid]
+            if (conn != null && conn.state == C.STATE_CONNECTED && conn.sock != null) {
+                // 已有连接：仅当"新来是主、已有非主"才替换；否则保留已有，
+                // 关闭新入站 channel（避免 fd 泄漏）。
+                if (!(myPref && !conn.preferred)) {
+                    try { channel.close() } catch (_: Exception) {}
+                    return true
+                }
+                closeSock(conn)
+            } else if (conn != null) closeSock(conn)
+            val newConn = Conn(readyMember!!)
+            newConn.state = C.STATE_CONNECTED
+            newConn.sock = SocketChannelAdapter(channel, addr)
+            newConn.addr = addr
+            newConn.preferred = myPref
+            connections[pid] = newConn
+        } finally {
+            lock.unlock()
+        }
         log("[房间] 入站连接 " + (readyMember?.get("name") ?: pid) + " <- " + key)
         try { onSocketReady?.invoke(pid, connections[pid]!!.sock!!, readyMember!!) } catch (e: Exception) {
             log("[房间] 入站回调异常: " + e.message)
@@ -584,6 +615,38 @@ class LinkManager(
         }
     }
 
+    // ---------- 靶子 / 主连接判定 ----------
+
+    /** 是否有可达靶子（打洞候选）。
+     *
+     * 没靶子不打：
+     *   · pub_tcp 非空 → 有公网 TCP 靶子
+     *   · lan 非空     → 有内网候选（跨网时快速失败，但不至于完全无候选）
+     * 都没有 = 打也白打（无候选可连），放弃本轮、等对端登记映射后重新触发。
+     */
+    private fun hasReachableTarget(peer: Map<String, Any?>?): Boolean {
+        if (peer == null) return false
+        val pubTcp = peer["pub_tcp"] as? String ?: ""
+        if (pubTcp.isNotEmpty()) return true
+        val lan = peer["lan"] as? List<*> ?: emptyList<Any?>()
+        if (lan.any { it is String && it.isNotEmpty() }) return true
+        return false
+    }
+
+    /** 本端【出站 connect】连接是否为主连接（ID 大者的出站 = 主）。 */
+    private fun outboundIsPreferred(peerId: String): Boolean {
+        val myId = signaling?.myId
+        if (myId.isNullOrEmpty() || peerId.isEmpty()) return true
+        return myId > peerId
+    }
+
+    /** 本端【入站 accept】连接是否为主连接（ID 小者的入站 = 主）。 */
+    private fun inboundIsPreferred(peerId: String): Boolean {
+        val myId = signaling?.myId
+        if (myId.isNullOrEmpty() || peerId.isEmpty()) return true
+        return myId < peerId
+    }
+
     // ---------- 打洞任务 ----------
 
     private fun punchTask(peer0: Map<String, Any?>, atMs0: Long) {
@@ -605,7 +668,24 @@ class LinkManager(
                     c != null && c.state == C.STATE_CONNECTED
                 } finally { lock.unlock() }
                 if (already) { log("[打洞] peer=" + peerId + " 已由其他任务连接，本任务退出"); return }
-                val latest = lock.let { it.lock(); try { members[peerId] ?: peer0 } finally { it.unlock() } }
+                var latest = lock.let { it.lock(); try { members[peerId] ?: peer0 } finally { it.unlock() } }
+                // 没靶子不打：pub_tcp 与内网候选都为空 → 无候选可连，打也白打。
+                // 主动再发一次 punch_req 请求映射，短暂等待后重读；仍无则放弃
+                // 本轮（等对端登记映射后由 member_update / punch_go 重新触发）。
+                if (!hasReachableTarget(latest)) {
+                    try {
+                        signaling?.let {
+                            log("[打洞] peer=" + peerId + " 无靶子（pub_tcp 与内网均空），请求映射后等待")
+                            it.requestPunch(peerId)
+                        }
+                    } catch (_: Exception) {}
+                    Thread.sleep(500)
+                    latest = lock.let { it.lock(); try { members[peerId] ?: latest } finally { it.unlock() } }
+                    if (!hasReachableTarget(latest)) {
+                        log("[打洞] peer=" + peerId + " 仍无靶子，放弃本轮（不打）")
+                        return
+                    }
+                }
                 if (attempt == 1) log("[打洞] 任务启动 peer=" + peerId + " 本地端口=" + puncher.localTcpPort)
                 else log("[打洞] 第 " + attempt + " 轮重试 peer=" + peerId + "（pub_tcp=" + (latest["pub_tcp"] ?: "") + "）")
                 val result = puncher.punch(latest, atMs)
@@ -655,19 +735,25 @@ class LinkManager(
     }
 
     private fun installSocket(peerId: String, result: PunchResult) {
+        val myPref = outboundIsPreferred(peerId)
         val member: Map<String, Any?>
         lock.lock()
         try {
             val old = connections[peerId]
             if (old != null && old.state == C.STATE_CONNECTED && old.sock != null) {
-                try { result.channel.close() } catch (_: Exception) {}
-                return
+                // 已有连接：仅当"新来是主、已有非主"才替换；否则丢弃新的。
+                if (!(myPref && !old.preferred)) {
+                    try { result.channel.close() } catch (_: Exception) {}
+                    return
+                }
+                closeSock(old)
             }
             if (old != null) closeSock(old)
             val conn = Conn(members[peerId] ?: emptyMap())
             conn.state = C.STATE_CONNECTED
             conn.sock = SocketChannelAdapter(result.channel, result.ip to result.port)
             conn.addr = result.ip to result.port
+            conn.preferred = myPref
             connections[peerId] = conn
             member = HashMap(members[peerId] ?: emptyMap())
         } finally { lock.unlock() }

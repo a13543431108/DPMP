@@ -183,7 +183,10 @@ class SignalingClient(
         }
         if (myId != null) {
             syncTime()
-            openMapping()
+            // 映射建立放后台线程【持续重试】：映射是打洞靶子，失败/慢会让
+            // 对端一直收不到 pub_tcp。不能阻塞，否则 recvLoop 不启动、
+            // 收不到后续 punch_go / member_update。
+            Thread({ openMapping() }, "dpmp-sig-map").apply { isDaemon = true; start() }
             openUdpHoleSocket()
             Thread.sleep(200)
         }
@@ -435,7 +438,11 @@ class SignalingClient(
     }
 
     private fun openMapping() {
-        for (attempt in 1..3) {
+        // 持续重试：映射是打洞靶子，失败/慢会让对端一直收不到 pub_tcp。
+        // 只要信令还在运行就不断重试（间隔递增，上限 3s），直到成功。
+        var attempt = 0
+        while (running) {
+            attempt += 1
             var s: Socket? = null
             try {
                 s = Socket()
@@ -456,8 +463,10 @@ class SignalingClient(
                 return
             } catch (e: Exception) {
                 try { s?.close() } catch (_: Exception) {}
-                if (attempt < 3) { Thread.sleep(500); continue }
-                log("[信令] TCP 映射观测连接失败: " + e.message)
+                val backoff = minOf(500L * attempt, 3000L)
+                log("[信令] TCP 映射观测连接失败（第 " + attempt + " 次，" +
+                        (backoff / 1000.0) + "s 后重试）: " + e.message)
+                Thread.sleep(backoff)
             }
         }
     }
@@ -517,6 +526,12 @@ class SignalingClient(
                     onMemberJoin?.invoke((msg["member"] as? Map<String, Any?>) ?: emptyMap())
                 }
                 C.T_MEMBER_LEAVE -> onMemberLeave?.invoke(msg["id"] as? String ?: "")
+                // member_update：成员信息更新（如对端 TCP 映射登记完成）。
+                // 走 onMemberJoin 路径（更新信息 + 触发打洞），拿到刚登记的有效 pub_tcp。
+                C.T_MEMBER_UPDATE -> {
+                    @Suppress("UNCHECKED_CAST")
+                    onMemberJoin?.invoke((msg["member"] as? Map<String, Any?>) ?: emptyMap())
+                }
                 C.T_PUNCH_GO -> {
                     @Suppress("UNCHECKED_CAST")
                     val peer = (msg["peer"] as? Map<String, Any?>) ?: emptyMap()

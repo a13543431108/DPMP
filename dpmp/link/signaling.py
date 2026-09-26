@@ -268,7 +268,10 @@ class SignalingClient:
             return False
         if self.my_id:
             self._sync_time()
-            self._open_mapping()
+            # 映射建立放后台线程【持续重试】：映射是打洞靶子，失败/慢会让
+            # 对端一直收不到 pub_tcp。不能阻塞，否则 recv_thread 不启动、
+            # 收不到后续 punch_go / member_update。
+            threading.Thread(target=self._open_mapping, daemon=True).start()
             self._open_udp_hole_socket()
             time.sleep(0.2)
         if self.on_joined:
@@ -576,8 +579,15 @@ class SignalingClient:
             self.log("[校时] 未能同步，使用本地时钟（可能影响打洞时刻）")
 
     def _open_mapping(self) -> None:
+        """建立 TCP 映射观测连接（暴露本机 TCP 公网映射）。
+
+        持续重试：映射是打洞靶子，失败/慢会让对端一直收不到 pub_tcp。
+        只要信令还在运行就不断重试（间隔递增，上限 3s），直到成功。
+        """
         fam = socket.AF_INET6 if ":" in self.server_ip else socket.AF_INET
-        for attempt in range(1, 4):
+        attempt = 0
+        while self._running:
+            attempt += 1
             s = None
             try:
                 s = socket.socket(fam, socket.SOCK_STREAM)
@@ -603,10 +613,10 @@ class SignalingClient:
                         s.close()
                     except Exception:
                         pass
-                if attempt < 3:
-                    time.sleep(0.5)
-                    continue
-                self.log("[信令] TCP 映射观测连接失败: %s" % e)
+                backoff = min(0.5 * attempt, 3.0)
+                self.log("[信令] TCP 映射观测连接失败（第 %d 次，%.1fs 后重试）: %s"
+                         % (attempt, backoff, e))
+                time.sleep(backoff)
 
     def _wait_joined(self) -> bool:
         deadline = time.time() + self.connect_timeout
@@ -650,6 +660,11 @@ class SignalingClient:
                 continue
             t = msg.get("type")
             if t == C.T_MEMBER_JOIN:
+                if self.on_member_join:
+                    self.on_member_join(msg.get("member", {}))
+            elif t == C.T_MEMBER_UPDATE:
+                # 成员信息更新（如对端 TCP 映射登记完成）：走 on_member_join
+                # 路径（更新信息 + 触发打洞），拿到刚登记的有效 pub_tcp。
                 if self.on_member_join:
                     self.on_member_join(msg.get("member", {}))
             elif t == C.T_MEMBER_LEAVE:

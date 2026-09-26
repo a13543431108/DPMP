@@ -35,6 +35,7 @@ object C {
     const val T_NAT_PROBE_REPLY = "nat_probe_reply"
     const val T_MEMBER_JOIN = "member_join"
     const val T_MEMBER_LEAVE = "member_leave"
+    const val T_MEMBER_UPDATE = "member_update"   // 成员信息更新（如 TCP 映射登记完成）
     const val T_PUNCH_GO = "punch_go"
     const val T_ERROR = "error"
 

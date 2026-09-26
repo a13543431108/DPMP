@@ -22,7 +22,7 @@ from .rtp import UdpReliableSocket
 class Conn:
     """单条到某成员的长连接。io_lock 串行化收发。"""
 
-    __slots__ = ("state", "sock", "addr", "member", "io_lock")
+    __slots__ = ("state", "sock", "addr", "member", "io_lock", "preferred")
 
     def __init__(self, member: dict) -> None:
         self.state = C.STATE_CONNECTING
@@ -30,6 +30,10 @@ class Conn:
         self.addr = None
         self.member = member
         self.io_lock = threading.Lock()
+        # 是否为"约定主连接"（去重用）：同时打开可能形成两条独立 TCP 连接
+        # （各方向一条），两端各用一条 → 半开。用 ID 规则约定只保留一条：
+        # ID 大者的出站连接 = 主；ID 小者的入站连接 = 主。
+        self.preferred = True
 
 
 class LinkManager:
@@ -225,6 +229,10 @@ class LinkManager:
 
     def _sync_punch_task(self, peer_id: str, peer: dict, t_go: int) -> None:
         """单次精准 TCP 打洞（不重试，因为 SYNC 已对齐时刻）。"""
+        # 没靶子不打：无候选可连，精准打洞也无意义（等对端登记映射后重触发）。
+        if not self._has_reachable_target(peer):
+            self.log("[打洞] peer=%s 无靶子，跳过精准打洞（不打）" % peer_id)
+            return
         try:
             now_ms = int(time.time() * 1000)
             wait_sec = (t_go - now_ms) / 1000.0
@@ -480,21 +488,41 @@ class LinkManager:
             for pid, m in self.members.items():
                 pub_tcp = m.get("pub_tcp", "")
                 if pub_tcp and pub_tcp == key:
-                    conn = self.connections.get(pid)
-                    if conn and conn.state == C.STATE_CONNECTED and conn.sock:
-                        return True
-                    if conn:
-                        self._close_sock(conn)
-                    new_conn = Conn(m)
-                    new_conn.state = C.STATE_CONNECTED
-                    new_conn.sock = sock
-                    new_conn.addr = (ip, port)
-                    self.connections[pid] = new_conn
                     ready_pid = pid
                     ready_member = dict(m)
                     break
+            # 回退：按【公网 IP】匹配。NAT 可能给"映射 socket"与"打洞 socket"
+            # 分配不同公网端口，导致精确 ip:port 匹配失败（握手成功但不认）。
+            if ready_pid is None and ip:
+                for pid, m in self.members.items():
+                    pt = m.get("pub_tcp", "")
+                    if pt and pt.rsplit(":", 1)[0] == ip:
+                        ready_pid = pid
+                        ready_member = dict(m)
+                        break
         if ready_pid is None:
             return False
+        my_pref = self._inbound_is_preferred(ready_pid)
+        with self.lock:
+            conn = self.connections.get(ready_pid)
+            if conn and conn.state == C.STATE_CONNECTED and conn.sock:
+                # 已有连接：仅当"新来是主、已有非主"才替换；否则保留已有，
+                # 关闭新入站 socket（避免 fd 泄漏）。
+                if not (my_pref and not conn.preferred):
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
+                    return True
+                self._close_sock(conn)
+            elif conn:
+                self._close_sock(conn)
+            new_conn = Conn(ready_member)
+            new_conn.state = C.STATE_CONNECTED
+            new_conn.sock = sock
+            new_conn.addr = (ip, port)
+            new_conn.preferred = my_pref
+            self.connections[ready_pid] = new_conn
         self._apply_keepalive(sock)
         self.log("[房间] 入站连接 %s <- %s" % (ready_member.get("name", ready_pid), key))
         cb = self.on_socket_ready
@@ -637,6 +665,39 @@ class LinkManager:
         except Exception as e:
             self.log("[房间] 请求打洞失败: %s" % e)
 
+    # ---------- 靶子 / 主连接判定 ----------
+
+    @staticmethod
+    def _has_reachable_target(peer: dict) -> bool:
+        """是否有可达靶子（打洞候选）。
+
+        没靶子不打：
+          · pub_tcp 非空 → 有公网 TCP 靶子
+          · lan 非空     → 有内网候选（跨网时快速失败，但不至于完全无候选）
+        都没有 = 打也白打（无候选可连），放弃本轮、等对端登记映射后重新触发。
+        """
+        if not peer:
+            return False
+        if peer.get("pub_tcp"):
+            return True
+        if peer.get("lan"):
+            return True
+        return False
+
+    def _outbound_is_preferred(self, peer_id: str) -> bool:
+        """本端【出站 connect】连接是否为主连接（ID 大者的出站 = 主）。"""
+        my_id = getattr(self.signaling, "my_id", None) or ""
+        if not my_id or not peer_id:
+            return True
+        return my_id > peer_id
+
+    def _inbound_is_preferred(self, peer_id: str) -> bool:
+        """本端【入站 accept】连接是否为主连接（ID 小者的入站 = 主）。"""
+        my_id = getattr(self.signaling, "my_id", None) or ""
+        if not my_id or not peer_id:
+            return True
+        return my_id < peer_id
+
     # ---------- 打洞任务 ----------
 
     def _punch_task(self, peer: dict, at_ms: int) -> None:
@@ -663,6 +724,23 @@ class LinkManager:
                         return
                 with self.lock:
                     latest = self.members.get(peer_id) or peer
+                # 没靶子不打：pub_tcp 与内网候选都为空 → 无候选可连，打也白打。
+                # 主动再发一次 punch_req 请求映射，短暂等待后重读；仍无则放弃
+                # 本轮（等对端登记映射后由 member_update / punch_go 重新触发）。
+                if not self._has_reachable_target(latest):
+                    try:
+                        if self.signaling:
+                            self.log("[打洞] peer=%s 无靶子（pub_tcp 与内网均空），请求映射后等待"
+                                     % peer_id)
+                            self.signaling.request_punch(peer_id)
+                    except Exception:
+                        pass
+                    time.sleep(0.5)
+                    with self.lock:
+                        latest = self.members.get(peer_id) or latest
+                    if not self._has_reachable_target(latest):
+                        self.log("[打洞] peer=%s 仍无靶子，放弃本轮（不打）" % peer_id)
+                        return
                 if attempt == 1:
                     self.log("[打洞] 任务启动 peer=%s 本地端口=%d"
                              % (peer_id, self._puncher.local_tcp_port))
@@ -725,20 +803,25 @@ class LinkManager:
             self._punch_sem.release()
 
     def _install_socket(self, peer_id: str, result: Any) -> None:
+        my_pref = self._outbound_is_preferred(peer_id)
         with self.lock:
             old = self.connections.get(peer_id)
             if old and old.state == C.STATE_CONNECTED and old.sock:
-                try:
-                    result.sock.close()
-                except Exception:
-                    pass
-                return
-            if old:
+                # 已有连接：仅当"新来是主、已有非主"才替换；否则丢弃新的。
+                if not (my_pref and not old.preferred):
+                    try:
+                        result.sock.close()
+                    except Exception:
+                        pass
+                    return
+                self._close_sock(old)
+            elif old:
                 self._close_sock(old)
             conn = Conn(self.members.get(peer_id, {}))
             conn.state = C.STATE_CONNECTED
             conn.sock = result.sock
             conn.addr = (result.ip, result.port)
+            conn.preferred = my_pref
             self.connections[peer_id] = conn
             member = dict(self.members.get(peer_id, {}))
         self._apply_keepalive(result.sock)

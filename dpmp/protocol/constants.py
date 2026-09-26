@@ -30,6 +30,7 @@ T_JOINED = "joined"
 T_NAT_PROBE_REPLY = "nat_probe_reply"
 T_MEMBER_JOIN = "member_join"
 T_MEMBER_LEAVE = "member_leave"
+T_MEMBER_UPDATE = "member_update"   # 成员信息更新（如 TCP 映射登记完成）
 T_PUNCH_GO = "punch_go"
 T_ERROR = "error"
 

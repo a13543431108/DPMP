@@ -53,6 +53,7 @@
 | `joined` | 加入成功，附成员列表 + `room_open`（房间是否开放） |
 | `nat_probe_reply` | 观测到的公网地址 |
 | `member_join` / `member_leave` | 成员上下线 |
+| `member_update` | 成员信息更新（如 TCP 映射登记完成，附最新 pub_tcp/pub_udp） |
 | `punch_go` | 通知在 at_ms 时刻打洞 |
 | `time_reply` | 回显 t1 + 服务器时刻 t2 |
 | `error` | 错误（含 `NEED_PASSWORD` / `BAD_PASSWORD` / `ROOM_OPEN`） |

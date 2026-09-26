@@ -14,7 +14,7 @@
 | 项 | 值 |
 |---|---|
 | 协议标识 | `DPMP/1.0` |
-| 库版本 | 0.1.4 |
+| 库版本 | 0.1.5 |
 | 编解码 | 大端序，与 ```dpmp/protocol/codec.py``` 逐字节一致 |
 | 一致性保障 | 共享 ```test_vectors.json```，两端单测各自加载断言 |
 | 分层 | protocol / link / stream / util（与 Python 端同名对齐） |
@@ -43,8 +43,8 @@ cd kotlin
 
 产物：
 
-- `build/libs/dpmp-0.1.4.jar` —— 库 JAR
-- `build/libs/dpmp-0.1.4-sources.jar` —— 源码 JAR
+- `build/libs/dpmp-0.1.5.jar` —— 库 JAR
+- `build/libs/dpmp-0.1.5-sources.jar` —— 源码 JAR
 
 ---
 

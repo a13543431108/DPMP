@@ -12,6 +12,6 @@ package io.dpmp
  *   · io.dpmp.util       工具层（网络探测 / 设备标识）
  */
 object Dpmp {
-    const val VERSION: String = "0.1.4"
+    const val VERSION: String = "0.1.5"
     const val PROTOCOL: String = "DPMP/1.0"
 }
